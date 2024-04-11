@@ -1,0 +1,222 @@
+use std::ops::Deref;
+
+use crate::lexer::{Node, NodeData, PatternKind};
+
+pub(crate) use self::state::State;
+use self::state::{MethodBody, Pattern, Value};
+
+mod standard;
+pub(super) mod state;
+mod fast {
+    pub(crate) fn exec(state: &mut super::State, code: &str) -> Result<usize, super::Interrupt> {
+        let tokens = crate::parser::parse_str(code);
+        let tree = crate::lexer::lex(tokens);
+        super::execute(state, tree)
+    }
+}
+
+#[derive(Debug)]
+pub enum Interrupt {
+    Exit,
+    Return(usize),
+    Repeat,
+    Error(usize, String),
+}
+
+pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
+    match node.data.deref() {
+        NodeData::Here => Ok(*state.cstack.last().unwrap()),
+        NodeData::Message(rec_node, msg_node) => {
+            // Execute recipient
+            let recipient = execute(state, rec_node.clone())?;
+            let message = match msg_node.data.deref() {
+                NodeData::Name(ref name) => {
+                    let some_method = state.get_method(recipient, &Pattern::Kw(name.clone()));
+                    if let Some((_, body)) = some_method {
+                        // Try call method of the recipient-object
+                        return execute_method(
+                            state,
+                            recipient,
+                            body.clone(),
+                            ("".into(), recipient),
+                        );
+                    } else {
+                        execute(state, msg_node.clone())?
+                    }
+                }
+                _ => {
+                    // If the message is not name, then execute it
+                    execute(state, node.clone())?
+                }
+            };
+            let some_method = state.match_method(recipient, message).expect(
+                format!(
+                    "Failed to match method for recipient {} and message {}",
+                    recipient, message
+                )
+                .as_str(),
+            );
+            let name = match &some_method.0 .1 {
+                Pattern::Kw(_) => unreachable!(),
+                Pattern::Eq(_) => "".into(),
+                Pattern::EqA(_, name) => name.clone(),
+                Pattern::Pt(_) => "".into(),
+                Pattern::PtA(_, name) => name.clone(),
+            };
+            execute_method(state, recipient, some_method.1.clone(), (name, message))
+        }
+        NodeData::Name(name) => {
+            let some_method = state.get_context_method(&Pattern::Kw(name.clone()));
+            // let some_method = state.get_method(*current_context_ptr, &Pattern::Kw(name.clone()));
+            let context = *state.cstack.last().unwrap();
+            if let Some(((_, pattern), body)) = some_method {
+                // Try call method of the context-object
+                let name = match pattern {
+                    Pattern::Kw(_) => unreachable!(),
+                    Pattern::Eq(_) => "".into(),
+                    Pattern::EqA(_, name) => name.clone(),
+                    Pattern::Pt(_) => "".into(),
+                    Pattern::PtA(_, name) => name.clone(),
+                };
+                execute_method(state, context, body.clone(), (name, context))
+            } else if let Some(value) = state.get_context_field_value(name) {
+                // Try get field of a context-object and then react to it's answer
+                match value {
+                    Value::Pointer(ptr) => Ok(ptr),
+                    Value::Int(_) | Value::Float(_) => todo!("Do something with system values"),
+                }
+            } else {
+                Err(Interrupt::Error(
+                    node.line,
+                    format!("Undefined keyword-method or field name: {}", name),
+                ))?
+            }
+        }
+        NodeData::Int(_) => todo!("Create int object"),
+        NodeData::Float(_) => todo!("Create float object"),
+        NodeData::String(_) => todo!("Create string object"),
+        NodeData::Pattern(..) => unreachable!(),
+        NodeData::As(..) => unreachable!(),
+        NodeData::Queue(queue) => execute_queue(state, &queue, node.line),
+        NodeData::QuickContext(queue) => {
+            let context = state.cstack.last().unwrap();
+            let sub_context = state.copy_object(*context).unwrap();
+            state.cstack.push(sub_context);
+            let result = execute_queue(state, &queue, node.line);
+            state.cstack.pop().unwrap();
+            state.clear_garbage(if let Ok(p) = result { vec![p] } else { vec![] });
+            result
+        }
+        NodeData::Copy(node) => {
+            let ptr = execute(state, node.clone())?;
+            match state.copy_object(ptr) {
+                Some(p) => Ok(p),
+                None => Err(Interrupt::Error(
+                    node.line,
+                    "Fatal system error: Failed to copy object, because it does not exists".into(),
+                )),
+            }
+        }
+        NodeData::At(context_node, body_node) => {
+            // todo!("crate::executor::execute()>>match>>Node::At(..)");
+            let context_ptr = execute(state, context_node.clone())?;
+            state.cstack.push(context_ptr);
+            let result = execute(state, body_node.clone());
+            state.cstack.pop().unwrap();
+            state.clear_garbage(if let Ok(p) = result { vec![p] } else { vec![] });
+            result
+        }
+        NodeData::Let(name, value_node) => {
+            let value = execute(state, value_node.clone())?;
+            state.set_field_value(
+                *state.cstack.last().unwrap(),
+                name.clone(),
+                Value::Pointer(value),
+            );
+            Ok(value)
+        }
+        NodeData::OnBe(patterns, body) => {
+            if patterns.len() != 1 {
+                unreachable!()
+            }
+            todo!("OnBe")
+        }
+        NodeData::OnDo(patterns, body) => {
+            if patterns.len() != 1 {
+                unreachable!()
+            }
+            let pattern = match patterns[0].data.deref() {
+                NodeData::Pattern(PatternKind::Keyword, name_node) => {
+                    let name = match name_node.data.deref() {
+                        NodeData::Name(name) => name,
+                        _ => unreachable!(),
+                    };
+                    Pattern::Kw(name.clone())
+                }
+                NodeData::Pattern(PatternKind::Prototype, node) => {
+                    Pattern::Pt(execute(state, node.clone())?)
+                }
+                NodeData::Pattern(PatternKind::Equalness, node) => {
+                    Pattern::Eq(execute(state, node.clone())?)
+                }
+                NodeData::As(pattern_node, alias) => match pattern_node.data.deref() {
+                    NodeData::Pattern(PatternKind::Prototype, node) => {
+                        Pattern::PtA(execute(state, node.clone())?, alias.clone())
+                    }
+                    NodeData::Pattern(PatternKind::Equalness, node) => {
+                        Pattern::EqA(execute(state, node.clone())?, alias.clone())
+                    }
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            state.define_method(
+                *state.cstack.last().unwrap(),
+                pattern,
+                MethodBody::Do(body.clone()),
+            );
+            Ok(*state.cstack.last().unwrap())
+        }
+    }
+}
+
+fn execute_queue(state: &mut State, queue: &Vec<Node>, line: usize) -> Result<usize, Interrupt> {
+    if queue.len() == 0 {
+        Err(Interrupt::Error(line, "Empty block of code".into()))?
+    }
+    let mut result = 0;
+    for node in queue {
+        match execute(state, node.clone()) {
+            Ok(ptr) => result = ptr,
+            Err(int) => Err(int)?,
+        }
+    }
+    Ok(result)
+}
+
+fn execute_method(
+    state: &mut State,
+    owner_ptr: usize,
+    body: MethodBody,
+    arg: (String, usize),
+) -> Result<usize, Interrupt> {
+    match body {
+        MethodBody::Be(ptr) => return Ok(ptr),
+        MethodBody::Do(body) => {
+            state.cstack.push(owner_ptr);
+            state.astack.push(arg);
+            let result = loop {
+                match execute(state, body.clone()) {
+                    Ok(ptr) => break Ok(ptr),
+                    Err(Interrupt::Return(ptr)) => break Ok(ptr),
+                    Err(Interrupt::Repeat) => continue,
+                    Err(int) => Err(int)?,
+                }
+            };
+            state.astack.pop().unwrap();
+            state.cstack.pop().unwrap();
+            result
+        }
+        MethodBody::Rust(body_function) => body_function(state),
+    }
+}
