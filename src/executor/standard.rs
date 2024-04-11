@@ -5,10 +5,11 @@ use super::Interrupt;
 pub fn prepare_std(state: &mut State) {
     state.objects.insert(0, (0, 0));
     state.objects.insert(1, (0, 1));
-    state.cstack.push(1);
-    state.astack.push(("".into(), 1));
-    state.set_field_value(1, "Object".into(), Value::Pointer(0)); // `at <Context> let Object <Object>`
+    state.contexts.push((1, false));
+    state.let_field_value(1, "Object".into(), Value::Pointer(0)); // `at <Context> let Object <Object>`
     state.op_count = 2;
+
+    // TODO: "==" method for Object
 
     state.define_method(
         0,

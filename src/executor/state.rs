@@ -5,7 +5,7 @@ use crate::lexer::Node;
 use super::{standard::prepare_std, Interrupt};
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Value {
+pub(crate) enum Value {
     Pointer(usize),
     Int(isize),
     Float(f64),
@@ -30,8 +30,7 @@ pub(super) enum MethodBody {
 #[derive(Debug)]
 pub(crate) struct State {
     pub(super) op_count: usize,
-    pub(super) cstack: Vec<usize>,           // Context
-    pub(super) astack: Vec<(String, usize)>, // Arguments (alias, ptr)
+    pub(super) contexts: Vec<(usize, bool)>, // Context (pointer, is pushed for method?)
 
     // ptr => (parent, context)
     pub(super) objects: HashMap<usize, (usize, usize)>,
@@ -45,8 +44,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             op_count: 0,
-            cstack: vec![],
-            astack: vec![],
+            contexts: vec![],
             objects: HashMap::new(),
             fields: HashMap::new(),
             methods: HashMap::new(),
@@ -79,7 +77,7 @@ impl State {
             }
         }
         // As context
-        for p in &self.cstack {
+        for (p, _) in &self.contexts {
             if *p == ptr {
                 count += 1;
             }
@@ -93,7 +91,7 @@ impl State {
         let new_ptr = self.op_count;
         self.op_count += 1;
         self.objects
-            .insert(new_ptr, (ptr, *self.cstack.last().unwrap()));
+            .insert(new_ptr, (ptr, self.contexts.last().unwrap().0));
         return Some(new_ptr);
     }
 
@@ -110,10 +108,10 @@ impl State {
         }
     }
 
-    /// Return true if success, else false.
-    pub(super) fn set_field_value(&mut self, ptr: usize, name: String, value: Value) -> bool {
+    /// Return Some if success, else None.
+    pub(super) fn let_field_value(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
         if !self.objects.contains_key(&ptr) {
-            return false;
+            None?
         }
         match self.fields.get_mut(&(ptr, name.clone())) {
             Some(val) => *val = value,
@@ -121,38 +119,37 @@ impl State {
                 self.fields.insert((ptr, name.clone()), value);
             }
         };
-        true
+        Some(())
+    }
+    pub(crate) fn set_field_value(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
+        let field_value = self.fields.get_mut(&(ptr, name))?;
+        *field_value = value;
+        Some(())
     }
     fn get_field_value(&self, ptr: usize, name: &String) -> Option<Value> {
-        let arg = self.astack.last().unwrap();
-        if name == "me" {
-            Some(Value::Pointer(*self.cstack.last().unwrap()))
-        } else if arg.0 == *name {
-            Some(Value::Pointer(arg.1))
-        } else {
-            match self.fields.get(&(ptr, name.clone())) {
-                Some(val) => Some(*val),
-                None => {
-                    if ptr == 0 {
-                        None?
-                    } else {
-                        let parent_ptr = self.objects.get(&ptr)?.0;
-                        self.get_field_value(parent_ptr, name)
-                    }
+        match self.fields.get(&(ptr, name.clone())) {
+            Some(val) => Some(*val),
+            None => {
+                if ptr == 0 {
+                    None?
+                } else {
+                    let parent_ptr = self.objects.get(&ptr)?.0;
+                    self.get_field_value(parent_ptr, name)
                 }
             }
         }
     }
     pub(super) fn get_context_field_value(&self, name: &String) -> Option<Value> {
-        let top_context = self.cstack.last().unwrap();
-        for ptr in self.cstack.iter().rev() {
-            self.relation(*top_context, *ptr)?;
+        for (ptr, is_for_method) in self.contexts.iter().rev() {
             match self.get_field_value(*ptr, name) {
                 Some(value) => return Some(value),
-                None => continue,
+                None => (),
             }
-        } // NOTE: This loop may be useless because of inheritance.
-        self.get_field_value(self.cstack[0], name)
+            if *is_for_method {
+                break;
+            }
+        }
+        self.get_field_value(self.contexts[0].0, name)
     }
 
     /// Return true, if method is re-defined;
@@ -184,11 +181,16 @@ impl State {
         &self,
         pattern: &Pattern,
     ) -> Option<(&(usize, Pattern), &MethodBody)> {
-        let ptr = self.cstack.last()?;
-        match self.get_method(*ptr, pattern) {
-            Some(method) => Some(method),
-            None => self.get_method(self.cstack[0], pattern),
+        for &(ptr, is_for_method) in self.contexts.iter().rev() {
+            match self.get_method(ptr, pattern) {
+                Some(method) => return Some(method),
+                None => (),
+            }
+            if is_for_method {
+                break;
+            }
         }
+        self.get_method(self.contexts[0].0, pattern)
     }
     pub(super) fn match_method(
         &self,

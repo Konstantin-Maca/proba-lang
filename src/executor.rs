@@ -25,7 +25,7 @@ pub enum Interrupt {
 
 pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
     match node.data.deref() {
-        NodeData::Here => Ok(*state.cstack.last().unwrap()),
+        NodeData::Here => Ok(state.contexts.last().unwrap().0),
         NodeData::Message(rec_node, msg_node) => {
             // Execute recipient
             let recipient = execute(state, rec_node.clone())?;
@@ -67,8 +67,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         }
         NodeData::Name(name) => {
             let some_method = state.get_context_method(&Pattern::Kw(name.clone()));
-            // let some_method = state.get_method(*current_context_ptr, &Pattern::Kw(name.clone()));
-            let context = *state.cstack.last().unwrap();
+            let context = state.contexts.last().unwrap().0;
             if let Some(((_, pattern), body)) = some_method {
                 // Try call method of the context-object
                 let name = match pattern {
@@ -99,11 +98,11 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         NodeData::As(..) => unreachable!(),
         NodeData::Queue(queue) => execute_queue(state, &queue, node.line),
         NodeData::QuickContext(queue) => {
-            let context = state.cstack.last().unwrap();
-            let sub_context = state.copy_object(*context).unwrap();
-            state.cstack.push(sub_context);
+            let context = state.contexts.last().unwrap().0;
+            let sub_context = state.copy_object(context).unwrap();
+            state.contexts.push((sub_context, false));
             let result = execute_queue(state, &queue, node.line);
-            state.cstack.pop().unwrap();
+            state.contexts.pop().unwrap();
             state.clear_garbage(if let Ok(p) = result { vec![p] } else { vec![] });
             result
         }
@@ -118,24 +117,39 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             }
         }
         NodeData::At(context_node, body_node) => {
-            // todo!("crate::executor::execute()>>match>>Node::At(..)");
             let context_ptr = execute(state, context_node.clone())?;
-            state.cstack.push(context_ptr);
+            state.contexts.push((context_ptr, false));
             let result = execute(state, body_node.clone());
-            state.cstack.pop().unwrap();
+            state.contexts.pop().unwrap();
             state.clear_garbage(if let Ok(p) = result { vec![p] } else { vec![] });
             result
         }
         NodeData::Let(name, value_node) => {
             let value = execute(state, value_node.clone())?;
-            state.set_field_value(
-                *state.cstack.last().unwrap(),
+            let success = state.let_field_value(
+                state.contexts.last().unwrap().0,
                 name.clone(),
                 Value::Pointer(value),
             );
-            Ok(value)
+            match success {
+                Some(_) => Ok(value),
+                None => Err(Interrupt::Error(node.line, "There is no field ".into())),
+            }
+        }
+        NodeData::Set(name, value_node) => {
+            let value = execute(state, value_node.clone())?;
+            let success = state.set_field_value(
+                state.contexts.last().unwrap().0,
+                name.clone(),
+                Value::Pointer(value),
+            );
+            match success {
+                Some(_) => Ok(value),
+                None => Err(Interrupt::Error(node.line, "".into())),
+            }
         }
         NodeData::OnBe(patterns, body) => {
+            // TODO
             if patterns.len() != 1 {
                 unreachable!()
             }
@@ -171,11 +185,11 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 _ => unreachable!(),
             };
             state.define_method(
-                *state.cstack.last().unwrap(),
+                state.contexts.last().unwrap().0,
                 pattern,
                 MethodBody::Do(body.clone()),
             );
-            Ok(*state.cstack.last().unwrap())
+            Ok(state.contexts.last().unwrap().0)
         }
     }
 }
@@ -203,8 +217,9 @@ fn execute_method(
     match body {
         MethodBody::Be(ptr) => return Ok(ptr),
         MethodBody::Do(body) => {
-            state.cstack.push(owner_ptr);
-            state.astack.push(arg);
+            let context = state.copy_object(owner_ptr).unwrap();
+            state.contexts.push((context, true));
+            state.let_field_value(context, arg.0, Value::Pointer(arg.1));
             let result = loop {
                 match execute(state, body.clone()) {
                     Ok(ptr) => break Ok(ptr),
@@ -213,8 +228,7 @@ fn execute_method(
                     Err(int) => Err(int)?,
                 }
             };
-            state.astack.pop().unwrap();
-            state.cstack.pop().unwrap();
+            state.contexts.pop().unwrap();
             result
         }
         MethodBody::Rust(body_function) => body_function(state),

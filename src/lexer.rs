@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::parser::{Token, TokenData};
 
 #[derive(Debug, Clone)]
@@ -23,6 +25,7 @@ pub enum NodeData {
     Copy(Node),
     At(Node, Node),
     Let(String, Node),
+    Set(String, Node),
     OnBe(Vec<Node>, Node),
     OnDo(Vec<Node>, Node),
 }
@@ -102,6 +105,10 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
         | TokenData::As
         | TokenData::Be
         | TokenData::Do => None?,
+        TokenData::Here => Node {
+            data: Box::new(NodeData::Here),
+            line: token.line,
+        },
         TokenData::Name(name) => {
             *i += 1;
             let data = if name == "here" {
@@ -176,7 +183,7 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             }
         }
         TokenData::Let => {
-            // "let" NAME MESSAGE_CHAIN <";"|")"|"}">
+            // "let" NAME MESSAGE_CHAIN EOQ
             *i += 1;
             let name = match &tokens[*i].data {
                 TokenData::Name(name) => name,
@@ -185,6 +192,23 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
                 Some(node) => Box::new(NodeData::Let(name.clone(), node)),
+                None => None?, // TODO: Make error "empty let value"
+            };
+            Node {
+                data: node_data,
+                line: token.line,
+            }
+        }
+        TokenData::Set => {
+            // "set" NAME MESSAGE_CHAIN EOQ
+            *i += 1;
+            let name = match &tokens[*i].data {
+                TokenData::Name(name) => name,
+                _ => panic!("Name is expected after `set' keyword"),
+            };
+            *i += 1;
+            let node_data = match lex_message_chain(tokens, i) {
+                Some(node) => Box::new(NodeData::Set(name.clone(), node)),
                 None => None?, // TODO: Make error "empty let value"
             };
             Node {
@@ -336,9 +360,9 @@ fn expand_method_definition(node_data: NodeData, line: usize) -> NodeData {
                 return node_data;
             }
             // Every pattern is a keyword
-            // on : a, : b be {};
+            // on : a, : b be [[something]];
             // =>
-            // on : a be at copy Object on : b be {};
+            // on : a be { on : b be [[something]]; here };
             let next_definition_node = Node {
                 data: Box::new(expand_method_definition(
                     NodeData::OnBe(patterns[1..].into(), body.clone()),
@@ -346,31 +370,53 @@ fn expand_method_definition(node_data: NodeData, line: usize) -> NodeData {
                 )),
                 line,
             };
-            let object_node = Node {
-                data: Box::new(NodeData::Name("Object".into())),
+            let here_node = Node {
+                data: Box::new(NodeData::Here),
                 line,
             };
-            let copy_object_node = Node {
-                data: Box::new(NodeData::Copy(object_node)),
+            let subcontext_node = Node {
+                data: Box::new(NodeData::QuickContext(vec![
+                    next_definition_node,
+                    here_node,
+                ])),
                 line,
             };
-            let at_node = Node {
-                data: Box::new(NodeData::At(copy_object_node, next_definition_node)),
-                line,
-            };
-            NodeData::OnBe(vec![patterns[0].clone()], at_node)
+            NodeData::OnBe(vec![patterns[0].clone()], subcontext_node)
         }
         NodeData::OnDo(patterns, body) => {
-            /*  on A as a; B as b do {};
+            /*  on A as a; B as b do [[something]];
              * =>
-             *  on A as a do at copy Object (
+             *  on A as a do {
              *      let a a;
-             *      on B as b do {};
-             *  );
+             *      on B as b do [[something]];
+             *      here
+             *  };
+             * [==================================]
+             *  on A; B as b do [[something]];
+             * =>
+             *  on A do {
+             *      on B as b do [[something]];
+             *      here
+             *  };
              */
             if patterns.len() == 1 {
                 return node_data;
             }
+            let mut queue_vec = Vec::new();
+            match patterns[0].data.deref() {
+                NodeData::As(_, name) => {
+                    let name_node = Node {
+                        data: Box::new(NodeData::Name(name.into())),
+                        line,
+                    };
+                    queue_vec.push(Node {
+                        data: Box::new(NodeData::Let(name.into(), name_node)),
+                        line,
+                    });
+                }
+                NodeData::Pattern(_, _) => (),
+                _ => unreachable!(),
+            };
             let next_definition_node = Node {
                 data: Box::new(expand_method_definition(
                     NodeData::OnDo(patterns[1..].into(), body.clone()),
@@ -378,19 +424,16 @@ fn expand_method_definition(node_data: NodeData, line: usize) -> NodeData {
                 )),
                 line,
             };
-            let object_node = Node {
-                data: Box::new(NodeData::Name("Object".into())),
+            let here_node = Node {
+                data: Box::new(NodeData::Here),
                 line,
             };
-            let copy_object_node = Node {
-                data: Box::new(NodeData::Copy(object_node)),
+            queue_vec.append(&mut vec![next_definition_node, here_node]);
+            let subcontext_node = Node {
+                data: Box::new(NodeData::QuickContext(queue_vec)),
                 line,
             };
-            let at_node = Node {
-                data: Box::new(NodeData::At(copy_object_node, next_definition_node)),
-                line,
-            };
-            NodeData::OnDo(vec![patterns[0].clone()], at_node)
+            NodeData::OnDo(vec![patterns[0].clone()], subcontext_node)
         }
         _ => panic!("Wrong token type to expand method definition"),
     }
