@@ -1,13 +1,11 @@
-let my_list copy List;
+[ First proto-object ]
+Object;
 
-at (let copier copy Object)
-    on Object as X do
-        copy X;
+[ Exit method ]
+[ Object exit; ]
+[ exit; ]
 
-let here_copier {
-    on Object as X do
-        copy X;
-    here
-};
-
-copier copier my_list;
+[ Bool ]
+Bool;
+Object == Object == True; [ -> True ]
+== Object == False; [ -> True ]

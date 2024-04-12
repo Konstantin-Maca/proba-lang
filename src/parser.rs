@@ -18,7 +18,6 @@ pub enum TokenData {
     Let,
     Set,
     On,
-    Be,
     Do,
     As,
 }
@@ -55,7 +54,6 @@ pub fn parse_str(string: &str) -> Vec<Token> {
             "let" => TokenData::Let,
             "set" => TokenData::Set,
             "on" => TokenData::On,
-            "be" => TokenData::Be,
             "do" => TokenData::Do,
             "as" => TokenData::As,
             s => {

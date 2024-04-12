@@ -66,19 +66,19 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             execute_method(state, recipient, some_method.1.clone(), (name, message))
         }
         NodeData::Name(name) => {
-            let some_method = state.get_context_method(&Pattern::Kw(name.clone()));
+            let some_method = state.get_method_ctx(&Pattern::Kw(name.clone()));
             let context = state.contexts.last().unwrap().0;
             if let Some(((_, pattern), body)) = some_method {
                 // Try call method of the context-object
                 let name = match pattern {
-                    Pattern::Kw(_) => unreachable!(),
+                    Pattern::Kw(_) => "".into(),
                     Pattern::Eq(_) => "".into(),
                     Pattern::EqA(_, name) => name.clone(),
                     Pattern::Pt(_) => "".into(),
                     Pattern::PtA(_, name) => name.clone(),
                 };
                 execute_method(state, context, body.clone(), (name, context))
-            } else if let Some(value) = state.get_context_field_value(name) {
+            } else if let Some(value) = state.get_field_ctx(name) {
                 // Try get field of a context-object and then react to it's answer
                 match value {
                     Value::Pointer(ptr) => Ok(ptr),
@@ -99,7 +99,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         NodeData::Queue(queue) => execute_queue(state, &queue, node.line),
         NodeData::QuickContext(queue) => {
             let context = state.contexts.last().unwrap().0;
-            let sub_context = state.copy_object(context).unwrap();
+            let sub_context = state.copy(context).unwrap();
             state.contexts.push((sub_context, false));
             let result = execute_queue(state, &queue, node.line);
             state.contexts.pop().unwrap();
@@ -108,7 +108,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         }
         NodeData::Copy(node) => {
             let ptr = execute(state, node.clone())?;
-            match state.copy_object(ptr) {
+            match state.copy(ptr) {
                 Some(p) => Ok(p),
                 None => Err(Interrupt::Error(
                     node.line,
@@ -126,7 +126,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         }
         NodeData::Let(name, value_node) => {
             let value = execute(state, value_node.clone())?;
-            let success = state.let_field_value(
+            let success = state.let_field(
                 state.contexts.last().unwrap().0,
                 name.clone(),
                 Value::Pointer(value),
@@ -138,7 +138,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         }
         NodeData::Set(name, value_node) => {
             let value = execute(state, value_node.clone())?;
-            let success = state.set_field_value(
+            let success = state.set_field(
                 state.contexts.last().unwrap().0,
                 name.clone(),
                 Value::Pointer(value),
@@ -147,13 +147,6 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 Some(_) => Ok(value),
                 None => Err(Interrupt::Error(node.line, "".into())),
             }
-        }
-        NodeData::OnBe(patterns, body) => {
-            // TODO
-            if patterns.len() != 1 {
-                unreachable!()
-            }
-            todo!("OnBe")
         }
         NodeData::OnDo(patterns, body) => {
             if patterns.len() != 1 {
@@ -191,6 +184,42 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             );
             Ok(state.contexts.last().unwrap().0)
         }
+        NodeData::OnRust(patterns, body_func) => {
+            if patterns.len() != 1 {
+                unreachable!()
+            }
+            let pattern = match patterns[0].data.deref() {
+                NodeData::Pattern(PatternKind::Keyword, name_node) => {
+                    let name = match name_node.data.deref() {
+                        NodeData::Name(name) => name,
+                        _ => unreachable!(),
+                    };
+                    Pattern::Kw(name.clone())
+                }
+                NodeData::Pattern(PatternKind::Prototype, node) => {
+                    Pattern::Pt(execute(state, node.clone())?)
+                }
+                NodeData::Pattern(PatternKind::Equalness, node) => {
+                    Pattern::Eq(execute(state, node.clone())?)
+                }
+                NodeData::As(pattern_node, alias) => match pattern_node.data.deref() {
+                    NodeData::Pattern(PatternKind::Prototype, node) => {
+                        Pattern::PtA(execute(state, node.clone())?, alias.clone())
+                    }
+                    NodeData::Pattern(PatternKind::Equalness, node) => {
+                        Pattern::EqA(execute(state, node.clone())?, alias.clone())
+                    }
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            state.define_method(
+                state.contexts.last().unwrap().0,
+                pattern,
+                MethodBody::Rust(*body_func),
+            );
+            Ok(state.contexts.last().unwrap().0)
+        }
     }
 }
 
@@ -214,23 +243,21 @@ fn execute_method(
     body: MethodBody,
     arg: (String, usize),
 ) -> Result<usize, Interrupt> {
-    match body {
-        MethodBody::Be(ptr) => return Ok(ptr),
-        MethodBody::Do(body) => {
-            let context = state.copy_object(owner_ptr).unwrap();
-            state.contexts.push((context, true));
-            state.let_field_value(context, arg.0, Value::Pointer(arg.1));
-            let result = loop {
-                match execute(state, body.clone()) {
-                    Ok(ptr) => break Ok(ptr),
-                    Err(Interrupt::Return(ptr)) => break Ok(ptr),
-                    Err(Interrupt::Repeat) => continue,
-                    Err(int) => Err(int)?,
-                }
-            };
-            state.contexts.pop().unwrap();
-            result
+    let context = state.copy(owner_ptr).unwrap();
+    state.contexts.push((context, true));
+    state.let_field(context, arg.0, Value::Pointer(arg.1));
+    let result = loop {
+        let result = match &body {
+            MethodBody::Do(body) => execute(state, body.clone()),
+            MethodBody::Rust(body_func) => body_func(state),
+        };
+        match result {
+            Ok(ptr) => break Ok(ptr),
+            Err(Interrupt::Return(ptr)) => break Ok(ptr),
+            Err(Interrupt::Repeat) => continue,
+            Err(int) => Err(int)?,
         }
-        MethodBody::Rust(body_function) => body_function(state),
-    }
+    };
+    state.contexts.pop().unwrap();
+    result
 }

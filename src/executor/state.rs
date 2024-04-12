@@ -11,6 +11,27 @@ pub(crate) enum Value {
     Float(f64),
 }
 
+impl Value {
+    pub fn unwrap_ptr(&self) -> usize {
+        match self {
+            Value::Pointer(p) => *p,
+            _ => panic!("Failed to unwrap pointer value"),
+        }
+    }
+    pub fn unwrap_int(&self) -> isize {
+        match self {
+            Value::Int(i) => *i,
+            _ => panic!("Failed to unwrap int value"),
+        }
+    }
+    pub fn unwrap_float(&self) -> f64 {
+        match self {
+            Value::Float(f) => *f,
+            _ => panic!("Failed to unwrap float value"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(super) enum Pattern {
     Kw(String),
@@ -22,7 +43,6 @@ pub(super) enum Pattern {
 
 #[derive(Debug, Clone)]
 pub(super) enum MethodBody {
-    Be(usize),
     Do(Node),
     Rust(fn(&mut State) -> Result<usize, Interrupt>),
 }
@@ -44,7 +64,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             op_count: 0,
-            contexts: vec![],
+            contexts: Vec::new(),
             objects: HashMap::new(),
             fields: HashMap::new(),
             methods: HashMap::new(),
@@ -56,37 +76,19 @@ impl State {
         prepare_std(&mut state);
         state
     }
-
-    fn count_links(&self, ptr: usize) -> usize {
-        let mut count = 0;
-        // As parent and context owner
-        for (_, (pn, c)) in &self.objects {
-            if *pn == ptr {
-                count += 1;
-            }
-            if *c == ptr {
-                count += 1;
+    pub fn here(&self) -> Option<usize> {
+        Some(self.contexts.last()?.0)
+    }
+    pub fn recipient(&self) -> Option<usize> {
+        for (ptr, is_for_method) in self.contexts.iter().rev() {
+            if *is_for_method {
+                return Some(self.objects.get(ptr)?.0);
             }
         }
-        // As field value
-        for pair in &self.fields {
-            if let Value::Pointer(p) = pair.1 {
-                if *p == ptr {
-                    count += 1;
-                }
-            }
-        }
-        // As context
-        for (p, _) in &self.contexts {
-            if *p == ptr {
-                count += 1;
-            }
-        }
-
-        count
+        None // NOTE: In theory, this is unreachable, but I'm not sure.
     }
 
-    pub(super) fn copy_object(&mut self, ptr: usize) -> Option<usize> {
+    pub(super) fn copy(&mut self, ptr: usize) -> Option<usize> {
         self.objects.get(&ptr)?;
         let new_ptr = self.op_count;
         self.op_count += 1;
@@ -109,7 +111,7 @@ impl State {
     }
 
     /// Return Some if success, else None.
-    pub(super) fn let_field_value(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
+    pub(super) fn let_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
         if !self.objects.contains_key(&ptr) {
             None?
         }
@@ -121,12 +123,12 @@ impl State {
         };
         Some(())
     }
-    pub(crate) fn set_field_value(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
+    pub(crate) fn set_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
         let field_value = self.fields.get_mut(&(ptr, name))?;
         *field_value = value;
         Some(())
     }
-    fn get_field_value(&self, ptr: usize, name: &String) -> Option<Value> {
+    fn get_field(&self, ptr: usize, name: &String) -> Option<Value> {
         match self.fields.get(&(ptr, name.clone())) {
             Some(val) => Some(*val),
             None => {
@@ -134,14 +136,14 @@ impl State {
                     None?
                 } else {
                     let parent_ptr = self.objects.get(&ptr)?.0;
-                    self.get_field_value(parent_ptr, name)
+                    self.get_field(parent_ptr, name)
                 }
             }
         }
     }
-    pub(super) fn get_context_field_value(&self, name: &String) -> Option<Value> {
+    pub(super) fn get_field_ctx(&self, name: &String) -> Option<Value> {
         for (ptr, is_for_method) in self.contexts.iter().rev() {
-            match self.get_field_value(*ptr, name) {
+            match self.get_field(*ptr, name) {
                 Some(value) => return Some(value),
                 None => (),
             }
@@ -149,7 +151,7 @@ impl State {
                 break;
             }
         }
-        self.get_field_value(self.contexts[0].0, name)
+        self.get_field(self.contexts[0].0, name)
     }
 
     /// Return true, if method is re-defined;
@@ -177,7 +179,7 @@ impl State {
             }
         }
     }
-    pub(super) fn get_context_method(
+    pub(super) fn get_method_ctx(
         &self,
         pattern: &Pattern,
     ) -> Option<(&(usize, Pattern), &MethodBody)> {
@@ -227,6 +229,35 @@ impl State {
             let parent_ptr = self.objects.get(&ptr)?.0;
             self.match_method(parent_ptr, message)
         }
+    }
+
+    fn count_links(&self, ptr: usize) -> usize {
+        let mut count = 0;
+        // As parent and context owner
+        for (_, (pn, c)) in &self.objects {
+            if *pn == ptr {
+                count += 1;
+            }
+            if *c == ptr {
+                count += 1;
+            }
+        }
+        // As field value
+        for pair in &self.fields {
+            if let Value::Pointer(p) = pair.1 {
+                if *p == ptr {
+                    count += 1;
+                }
+            }
+        }
+        // As context
+        for (p, _) in &self.contexts {
+            if *p == ptr {
+                count += 1;
+            }
+        }
+
+        count
     }
 
     pub(super) fn clear_garbage(&mut self, white_list: Vec<usize>) {

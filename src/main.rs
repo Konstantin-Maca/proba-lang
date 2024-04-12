@@ -12,6 +12,6 @@ fn main() {
 
     let mut state = executor::State::standard();
     let result = executor::execute(&mut state, tree);
-    dbg!(&result);
     // dbg!(&state);
+    dbg!(&result);
 }

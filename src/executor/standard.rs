@@ -6,25 +6,61 @@ pub fn prepare_std(state: &mut State) {
     state.objects.insert(0, (0, 0));
     state.objects.insert(1, (0, 1));
     state.contexts.push((1, false));
-    state.let_field_value(1, "Object".into(), Value::Pointer(0)); // `at <Context> let Object <Object>`
+    state.let_field(1, "Object".into(), Value::Pointer(0)); // `at <Context> let Object <Object>`
     state.op_count = 2;
-
-    // TODO: "==" method for Object
 
     state.define_method(
         0,
         Pattern::Kw("exit".into()),
         MethodBody::Rust(|_| Err(Interrupt::Exit)),
     );
+    state.define_method(
+        0,
+        Pattern::Kw("return".into()),
+        MethodBody::Rust(|state| Err(Interrupt::Return(state.recipient().unwrap()))),
+    );
 
     exec(
         state,
         "
-        at (let None copy Object) on Object do None;
-
         let Bool copy Object;
         let True copy Bool;
         let False copy Bool;
+        ",
+    )
+    .unwrap();
+
+    {
+        //  at Object on : ==; Object as other do [[ rust ]];
+        state.define_method(
+            0,
+            Pattern::Kw("==".into()),
+            MethodBody::Rust(|state| {
+                let subcontext = state.copy(state.recipient().unwrap()).unwrap();
+                state.contexts.push((subcontext, false));
+                state.define_method(
+                    state.here().unwrap(),
+                    Pattern::PtA(0, "other".into()),
+                    MethodBody::Rust(|state| {
+                        if state.recipient().unwrap()
+                            == state.get_field_ctx(&"other".into()).unwrap().unwrap_ptr()
+                        {
+                            Ok(state.get_field_ctx(&"True".into()).unwrap().unwrap_ptr())
+                        } else {
+                            Ok(state.get_field_ctx(&"False".into()).unwrap().unwrap_ptr())
+                        }
+                    }),
+                );
+                Ok(state.contexts.pop().unwrap().0)
+            }),
+        );
+    }
+
+    exec(
+        state,
+        "
+        at (let Option copy Object) let value Object;
+        at (let None copy Option) let value None;
 
         at (let List copy Object) (
             let Node copy Object;
@@ -52,7 +88,6 @@ pub fn prepare_std(state: &mut State) {
             );
             on : empty? do first empty?;
         );
-        exit
         ",
     )
     .unwrap();
