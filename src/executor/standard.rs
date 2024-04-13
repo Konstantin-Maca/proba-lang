@@ -12,7 +12,7 @@ pub fn prepare_std(state: &mut State) {
     state.define_method(
         0,
         Pattern::Kw("exit".into()),
-        MethodBody::Rust(|_| Err(Interrupt::Exit)),
+        MethodBody::Rust(|state| Err(Interrupt::Exit(state.recipient().unwrap()))),
     );
     state.define_method(
         0,
