@@ -1,6 +1,13 @@
+use std::process::exit;
+
 mod executor;
 mod lexer;
 mod parser;
+
+fn proba_error(message: &str) -> ! {
+    println!("Prost error: {message}");
+    exit(0)
+}
 
 fn main() {
     let test_file_path = "test.proba";

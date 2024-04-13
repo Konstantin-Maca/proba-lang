@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     executor::Interrupt,
-    parser::{Token, TokenData},
+    parser::{Token, TokenData}, proba_error,
 };
 
 #[derive(Debug, Clone)]
@@ -200,7 +200,7 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
                 Some(node) => Box::new(NodeData::Let(name.clone(), node)),
-                None => None?, // TODO: Make error "empty let value"
+                None => proba_error("Syntax: Empty let-statement value expression."),
             };
             Node {
                 data: node_data,
@@ -217,7 +217,7 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
                 Some(node) => Box::new(NodeData::Set(name.clone(), node)),
-                None => None?, // TODO: Make error "empty let value"
+                None => proba_error("Syntax: Empty let-statement value expression."),
             };
             Node {
                 data: node_data,
