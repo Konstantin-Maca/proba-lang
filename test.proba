@@ -13,4 +13,5 @@ Object == Object == True; [ -> True ]
 [ Equal-pattern ]
 let foo copy Object;
 on = foo as F do copy F;
-here foo foo [ (copy foo) [ <- error ] ];
+here foo;
+[ here copy foo; ] [ <- error ];
