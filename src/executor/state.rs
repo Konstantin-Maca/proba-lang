@@ -205,7 +205,6 @@ impl State {
         ptr: usize,
         message: usize,
     ) -> Option<((usize, Pattern), MethodBody)> {
-        println!("State::match_method(state, {ptr}, {message})");
         for (key, body) in self.methods.clone().iter() {
             match key.1 {
                 Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
