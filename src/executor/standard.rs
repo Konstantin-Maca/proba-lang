@@ -36,15 +36,17 @@ pub fn prepare_std(state: &mut State) {
             0,
             Pattern::Kw("==".into()),
             MethodBody::Rust(|state| {
-                let subcontext = state.copy(state.recipient().unwrap()).unwrap();
+                let recipient_ptr = state.recipient().unwrap();
+                let subcontext = state.copy(recipient_ptr).unwrap();
                 state.contexts.push((subcontext, false));
                 state.define_method(
                     state.here().unwrap(),
                     Pattern::PtA(0, "other".into()),
                     MethodBody::Rust(|state| {
-                        if state.recipient().unwrap()
-                            == state.get_field_ctx(&"other".into()).unwrap().unwrap_ptr()
-                        {
+                        let first_recipient_ptr =
+                            state.objects.get(&state.recipient().unwrap()).unwrap().0;
+                        let other_ptr = state.get_field_ctx(&"other".into()).unwrap().unwrap_ptr();
+                        if first_recipient_ptr == other_ptr {
                             Ok(state.get_field_ctx(&"True".into()).unwrap().unwrap_ptr())
                         } else {
                             Ok(state.get_field_ctx(&"False".into()).unwrap().unwrap_ptr())

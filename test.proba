@@ -9,3 +9,8 @@ Object;
 Bool;
 Object == Object == True; [ -> True ]
 == Object == False; [ -> True ]
+
+[ Equal-pattern ]
+let foo copy Object;
+on = foo as F do copy F;
+here foo foo [ (copy foo) [ <- error ] ];

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::lexer::Node;
 
-use super::{standard::prepare_std, Interrupt};
+use super::{execute_method, standard::prepare_std, Interrupt};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Value {
@@ -162,29 +162,34 @@ impl State {
             None => false,
         }
     }
+    /// Use when message is a name (word (keyword)).
     pub(super) fn get_method(
         &self,
         ptr: usize,
-        pattern: &Pattern,
+        keyword: String,
     ) -> Option<(&(usize, Pattern), &MethodBody)> {
-        match self.methods.get_key_value(&(ptr, pattern.clone())) {
+        match self
+            .methods
+            .get_key_value(&(ptr, Pattern::Kw(keyword.clone())))
+        {
             Some(method) => Some(method),
             None => {
                 if ptr == 0 {
                     None?
                 } else {
                     let parent_ptr = self.objects.get(&ptr)?.0;
-                    self.get_method(parent_ptr, pattern)
+                    self.get_method(parent_ptr, keyword)
                 }
             }
         }
     }
+    /// Use when message is a name (word (keyword)).
     pub(super) fn get_method_ctx(
         &self,
-        pattern: &Pattern,
+        keyword: String,
     ) -> Option<(&(usize, Pattern), &MethodBody)> {
         for &(ptr, is_for_method) in self.contexts.iter().rev() {
-            match self.get_method(ptr, pattern) {
+            match self.get_method(ptr, keyword.clone()) {
                 Some(method) => return Some(method),
                 None => (),
             }
@@ -192,33 +197,40 @@ impl State {
                 break;
             }
         }
-        self.get_method(self.contexts[0].0, pattern)
+        self.get_method(self.contexts[0].0, keyword)
     }
+    /// Use when message is an object.pub(super) fn match_method(
     pub(super) fn match_method(
-        &self,
+        &mut self,
         ptr: usize,
         message: usize,
-    ) -> Option<(&(usize, Pattern), &MethodBody)> {
-        for method in self.methods.iter() {
-            match method.0 .1 {
-                Pattern::Eq(_pattern) => {
-                    println!("Realize equalness");
-                    continue;
-                    // IDEA: If one of objects has keyword-method "==", call it, else compare pointers
-                }
-                Pattern::EqA(_pattern, _) => {
-                    println!("Realize equalness");
-                    continue;
-                }
-                Pattern::Pt(pattern)
-                    if method.0 .0 == ptr && self.relation(message, pattern).is_some() =>
+    ) -> Option<((usize, Pattern), MethodBody)> {
+        println!("State::match_method(state, {ptr}, {message})");
+        for (key, body) in self.methods.clone().iter() {
+            match key.1 {
+                Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
+                    if key.0 == ptr && {
+                        // pattern == message
+                        let method = self.get_method(pattern_ptr, "==".into()).unwrap();
+                        let ptr =
+                            execute_method(self, pattern_ptr, method.1.clone(), ("".into(), 0))
+                                .unwrap();
+                        let method = self.match_method(ptr, message).unwrap();
+                        let arg_name = match &method.0 .1 {
+                            Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                            Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
+                            _ => unreachable!(),
+                        };
+                        let ptr = execute_method(self, ptr, method.1.clone(), (arg_name, message));
+                        ptr.unwrap() == self.get_field(1, &"True".into()).unwrap().unwrap_ptr()
+                    } =>
                 {
-                    return Some(method);
+                    return Some((key.clone(), body.clone()));
                 }
-                Pattern::PtA(pattern, _)
-                    if method.0 .0 == ptr && self.relation(message, pattern).is_some() =>
+                Pattern::Pt(pattern_ptr) | Pattern::PtA(pattern_ptr, ..)
+                    if key.0 == ptr && self.relation(message, pattern_ptr).is_some() =>
                 {
-                    return Some(method);
+                    return Some((key.clone(), body.clone()));
                 }
                 _ => continue,
             }

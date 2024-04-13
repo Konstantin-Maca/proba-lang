@@ -2,7 +2,8 @@ use std::ops::Deref;
 
 use crate::{
     executor::Interrupt,
-    parser::{Token, TokenData}, proba_error,
+    parser::{Token, TokenData},
+    proba_error,
 };
 
 #[derive(Debug, Clone)]

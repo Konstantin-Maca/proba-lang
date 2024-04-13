@@ -1,6 +1,9 @@
 use std::ops::Deref;
 
-use crate::lexer::{Node, NodeData, PatternKind};
+use crate::{
+    lexer::{Node, NodeData, PatternKind},
+    proba_error,
+};
 
 pub(crate) use self::state::State;
 use self::state::{MethodBody, Pattern, Value};
@@ -17,7 +20,7 @@ mod fast {
 
 #[derive(Debug)]
 pub enum Interrupt {
-    Exit,
+    Exit(usize),
     Return(usize),
     Repeat,
     Error(usize, String),
@@ -31,7 +34,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             let recipient = execute(state, rec_node.clone())?;
             let message = match msg_node.data.deref() {
                 NodeData::Name(ref name) => {
-                    let some_method = state.get_method(recipient, &Pattern::Kw(name.clone()));
+                    let some_method = state.get_method(recipient, name.clone());
                     if let Some((_, body)) = some_method {
                         // Try call method of the recipient-object
                         return execute_method(
@@ -40,33 +43,32 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                             body.clone(),
                             ("".into(), recipient),
                         );
-                    } else {
-                        execute(state, msg_node.clone())?
                     }
+                    execute(state, msg_node.clone())?
                 }
-                _ => {
-                    // If the message is not name, then execute it
-                    execute(state, node.clone())?
-                }
+                _ => execute(state, node.clone())?,
             };
-            let some_method = state.match_method(recipient, message).expect(
-                format!(
-                    "Failed to match method for recipient {} and message {}",
-                    recipient, message
-                )
-                .as_str(),
-            );
-            let name = match &some_method.0 .1 {
+            let method = match state.match_method(recipient, message) {
+                Some(method) => method,
+                None => Err(Interrupt::Error(
+                    node.line,
+                    format!(
+                        "Failed to match method for recipient {recipient} and message {message}"
+                    ),
+                ))?,
+            };
+            let name = match &method.0 .1 {
                 Pattern::Kw(_) => unreachable!(),
                 Pattern::Eq(_) => "".into(),
                 Pattern::EqA(_, name) => name.clone(),
                 Pattern::Pt(_) => "".into(),
                 Pattern::PtA(_, name) => name.clone(),
             };
-            execute_method(state, recipient, some_method.1.clone(), (name, message))
+            let body = method.1.clone();
+            execute_method(state, recipient, body, (name, message))
         }
         NodeData::Name(name) => {
-            let some_method = state.get_method_ctx(&Pattern::Kw(name.clone()));
+            let some_method = state.get_method_ctx(name.clone());
             let context = state.contexts.last().unwrap().0;
             if let Some(((_, pattern), body)) = some_method {
                 // Try call method of the context-object
