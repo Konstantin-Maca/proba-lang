@@ -5,7 +5,7 @@ mod lexer;
 mod parser;
 
 fn proba_error(message: &str) -> ! {
-    println!("Prost error: {message}");
+    println!("Proba error: {message}");
     exit(0)
 }
 
