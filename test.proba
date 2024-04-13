@@ -14,4 +14,4 @@ Object == Object == True; [ -> True ]
 let foo copy Object;
 on = foo as F do copy F;
 here foo;
-[ here copy foo; ] [ <- error ];
+[ here copy foo; ] [ <- error ]

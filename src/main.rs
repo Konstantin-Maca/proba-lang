@@ -60,13 +60,16 @@ fn proba_error(message: &str) -> ! {
 }
 
 fn main() {
+    const TEST_FILE_PATH: &str = "test.proba";
     let config = parse_args();
 
-    let test_file_path = "test.proba";
-    let tokens = parser::parse_file(test_file_path.into());
-
+    let file_path = if let Some(fp) = config.file_path {
+        fp
+    } else {
+        TEST_FILE_PATH.into()
+    };
+    let tokens = parser::parse_file(file_path.into());
     let tree = lexer::lex(tokens);
-
     let mut state = executor::State::standard();
     let result = executor::execute(&mut state, tree);
     if config.debug_state {

@@ -209,7 +209,7 @@ impl State {
             match key.1 {
                 Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
                     if key.0 == ptr && {
-                        // pattern == message
+                        // pattern_ptr == message
                         let method = self.get_method(pattern_ptr, "==".into()).unwrap();
                         let ptr =
                             execute_method(self, pattern_ptr, method.1.clone(), ("".into(), 0))

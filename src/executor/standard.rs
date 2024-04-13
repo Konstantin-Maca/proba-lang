@@ -74,7 +74,7 @@ pub fn prepare_std(state: &mut State) {
                 on : get do data;
                 on : empty? do (
                     (at copy Object (
-                        on End do True; [ TODO: do => be ]
+                        on End do True;
                         on Object do False;
                     )) next;
                 );
