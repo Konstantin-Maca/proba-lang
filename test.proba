@@ -3,12 +3,8 @@ Object println;
 
 [ Bool ]
 Bool;
-Object == Object
-    println [ -> True ]
-    == True println;
-== Object
-    println [ -> True ]
-    == False println;
+Object == Object println; [ -> True ]
+== Object println; [ -> False ]
 
 [ Equal-pattern ]
 let foo copy Object;
@@ -18,9 +14,10 @@ here foo;
 
 [ Int ]
 let a 23 println;
-a == a println;
-23 == a println;
-a == 28 println;
+a == 23 println; [ -> True ]
+23 == a println; [ -> True ]
+a == 28 println; [ -> False ]
+a == a println; [ -> True ]
 
 [ Exit method ]
 Object exit;

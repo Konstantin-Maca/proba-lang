@@ -157,9 +157,10 @@ pub fn prepare_std(state: &mut State) {
                                 .unwrap_int();
 
                             if left_value == right_value {
-                                Ok(state.get_field_ctx("True".into()).unwrap().unwrap_ptr())
+                                // TODO: Replace with get_field(1, ...)
+                                Ok(state.get_field(1, "True".into()).unwrap().unwrap_ptr())
                             } else {
-                                Ok(state.get_field_ctx("False".into()).unwrap().unwrap_ptr())
+                                Ok(state.get_field(1, "False".into()).unwrap().unwrap_ptr())
                             }
                         }),
                     );
