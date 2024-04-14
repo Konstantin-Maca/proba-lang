@@ -22,11 +22,7 @@ pub fn prepare_std(state: &mut State) {
 
     exec(
         state,
-        "
-        let Bool copy Object;
-        let True copy Bool;
-        let False copy Bool;
-        ",
+        "let Bool copy Object; let True copy Bool; let False copy Bool;",
     )
     .unwrap();
 
@@ -45,11 +41,11 @@ pub fn prepare_std(state: &mut State) {
                     MethodBody::Rust(|state| {
                         let first_recipient_ptr =
                             state.objects.get(&state.recipient().unwrap()).unwrap().0;
-                        let other_ptr = state.get_field_ctx(&"other".into()).unwrap().unwrap_ptr();
+                        let other_ptr = state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
                         if first_recipient_ptr == other_ptr {
-                            Ok(state.get_field_ctx(&"True".into()).unwrap().unwrap_ptr())
+                            Ok(state.get_field_ctx("True".into()).unwrap().unwrap_ptr())
                         } else {
-                            Ok(state.get_field_ctx(&"False".into()).unwrap().unwrap_ptr())
+                            Ok(state.get_field_ctx("False".into()).unwrap().unwrap_ptr())
                         }
                     }),
                 );
@@ -61,8 +57,8 @@ pub fn prepare_std(state: &mut State) {
     exec(
         state,
         "
-        at (let Option copy Object) let value Object;
-        at (let None copy Option) let value None;
+        at (let None copy Object) on : none? do True;
+        at Object on : none? do False;
 
         at (let List copy Object) (
             let Node copy Object;
@@ -72,23 +68,20 @@ pub fn prepare_std(state: &mut State) {
                 let next End;
 
                 on : get do data;
-                on : empty? do (
-                    (at copy Object (
-                        on End do True;
-                        on Object do False;
-                    )) next;
-                );
+                on : getNext do next;
+                on : end? do False;
+            );
+            at End (
+                let next End;
+
+                on : get do None;
+                on : end? do True;
             );
 
-            let first Node;
+            let first End;
 
-            on : first do (
-                (at copy Object (
-                    on True; Node as _ do None;
-                    on False; Node as first do first get;
-                )) (empty?) first;
-            );
-            on : empty? do first empty?;
+            on : first do first get;
+            on : empty? do first end?;
         );
         ",
     )

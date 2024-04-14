@@ -97,7 +97,7 @@ impl State {
         return Some(new_ptr);
     }
 
-    fn relation(&self, ptr: usize, parent_ptr: usize) -> Option<usize> {
+    pub fn relation(&self, ptr: usize, parent_ptr: usize) -> Option<usize> {
         if ptr == parent_ptr {
             return Some(0);
         }
@@ -128,7 +128,7 @@ impl State {
         *field_value = value;
         Some(())
     }
-    fn get_field(&self, ptr: usize, name: &String) -> Option<Value> {
+    pub fn get_field(&self, ptr: usize, name: String) -> Option<Value> {
         match self.fields.get(&(ptr, name.clone())) {
             Some(val) => Some(*val),
             None => {
@@ -141,9 +141,22 @@ impl State {
             }
         }
     }
-    pub(super) fn get_field_ctx(&self, name: &String) -> Option<Value> {
+    pub(super) fn get_field_ctx(&self, name: String) -> Option<Value> {
+        // You can get field in a context-object,
+        // only if you entered into it from another context,
+        // that is a copy of the current context-object's creation context.
+        // Exception: the global context.
+        let heres_context = self.objects[&self.here().unwrap()].1;
+        if self.here().unwrap() != 1
+            && !self
+                .relation(self.contexts[self.contexts.len() - 2].0, heres_context)
+                .is_some()
+        {
+            None?
+        }
+
         for (ptr, is_for_method) in self.contexts.iter().rev() {
-            match self.get_field(*ptr, name) {
+            match self.get_field(*ptr, name.clone()) {
                 Some(value) => return Some(value),
                 None => (),
             }
@@ -221,7 +234,7 @@ impl State {
                             _ => unreachable!(),
                         };
                         let ptr = execute_method(self, ptr, method.1.clone(), (arg_name, message));
-                        ptr.unwrap() == self.get_field(1, &"True".into()).unwrap().unwrap_ptr()
+                        ptr.unwrap() == self.get_field(1, "True".into()).unwrap().unwrap_ptr()
                     } =>
                 {
                     return Some((key.clone(), body.clone()));

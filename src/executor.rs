@@ -1,9 +1,6 @@
 use std::ops::Deref;
 
-use crate::{
-    lexer::{Node, NodeData, PatternKind},
-    proba_error,
-};
+use crate::lexer::{Node, NodeData, PatternKind};
 
 pub(crate) use self::state::State;
 use self::state::{MethodBody, Pattern, Value};
@@ -46,7 +43,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                     }
                     execute(state, msg_node.clone())?
                 }
-                _ => execute(state, node.clone())?,
+                _ => execute(state, msg_node.clone())?,
             };
             let method = match state.match_method(recipient, message) {
                 Some(method) => method,
@@ -80,7 +77,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                     Pattern::PtA(_, name) => name.clone(),
                 };
                 execute_method(state, context, body.clone(), (name, context))
-            } else if let Some(value) = state.get_field_ctx(name) {
+            } else if let Some(value) = state.get_field_ctx(name.into()) {
                 // Try get field of a context-object and then react to it's answer
                 match value {
                     Value::Pointer(ptr) => Ok(ptr),
@@ -127,6 +124,22 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             result
         }
         NodeData::Let(name, value_node) => {
+            // You can let new field or re-let existing one in a context-object,
+            // only if you entered into it from another context,
+            // that is a copy of the current context-object's creation context.
+            // Exception: the global context.
+            let heres_context = state.objects[&state.here().unwrap()].1;
+            if state.here().unwrap() != 1
+                && !state
+                    .relation(state.contexts[state.contexts.len() - 2].0, heres_context)
+                    .is_some()
+            {
+                Err(Interrupt::Error(
+                    node.line,
+                    "You can not define a field in this context.".into(),
+                ))?
+            }
+
             let value = execute(state, value_node.clone())?;
             let success = state.let_field(
                 state.contexts.last().unwrap().0,
@@ -135,10 +148,24 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             );
             match success {
                 Some(_) => Ok(value),
-                None => Err(Interrupt::Error(node.line, "There is no field ".into())),
+                None => Err(Interrupt::Error(node.line, "Unexpected error".into())),
             }
         }
         NodeData::Set(name, value_node) => {
+            // You can set existing field in a context-object,
+            // only if you entered into it from another context,
+            // that is a copy of the current context-object's creation context.
+            // Exception: the global context.
+            let super_context = state.contexts[state.contexts.len() - 2].0;
+            let heres_context = state.objects[&state.here().unwrap()].1;
+            if state.here().unwrap() != 1 && !state.relation(super_context, heres_context).is_some()
+            {
+                Err(Interrupt::Error(
+                    node.line,
+                    "You can not define a field in this context.".into(),
+                ))?
+            }
+
             let value = execute(state, value_node.clone())?;
             let success = state.set_field(
                 state.contexts.last().unwrap().0,
@@ -147,7 +174,10 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             );
             match success {
                 Some(_) => Ok(value),
-                None => Err(Interrupt::Error(node.line, "".into())),
+                None => Err(Interrupt::Error(
+                    node.line,
+                    format!("There is no field with name {name}"),
+                )),
             }
         }
         NodeData::OnDo(patterns, body) => {

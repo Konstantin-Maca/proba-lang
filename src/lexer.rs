@@ -31,6 +31,7 @@ pub enum NodeData {
     Let(String, Node),
     Set(String, Node),
     OnDo(Vec<Node>, Node),
+    // NOTE: Maybe useless
     OnRust(
         Vec<Node>,
         fn(&mut crate::executor::State) -> Result<usize, Interrupt>,
