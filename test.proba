@@ -1,17 +1,26 @@
 [ First proto-object ]
-Object;
-
-[ Exit method ]
-[ Object exit; ]
-[ exit; ]
+Object println;
 
 [ Bool ]
 Bool;
-Object == Object == True; [ -> True ]
-== Object == False; [ -> True ]
+Object == Object
+    println [ -> True ]
+    == True println;
+== Object
+    println [ -> True ]
+    == False println;
 
 [ Equal-pattern ]
 let foo copy Object;
 on = foo as F do copy F;
 here foo;
 [ here copy foo; ] [ <- error ]
+
+[ Int ]
+let a 23 println;
+a == a println;
+23 == a println;
+a == 28 println;
+
+[ Exit method ]
+Object exit;

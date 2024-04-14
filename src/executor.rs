@@ -90,7 +90,13 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 ))?
             }
         }
-        NodeData::Int(_) => todo!("Create int object"),
+        NodeData::Int(value) => {
+            let ptr = state
+                .copy(state.get_field(1, "Int".into()).unwrap().unwrap_ptr())
+                .unwrap();
+            state.let_field(ptr, "value".into(), Value::Int(*value));
+            Ok(ptr)
+        }
         NodeData::Float(_) => todo!("Create float object"),
         NodeData::String(_) => todo!("Create string object"),
         NodeData::Pattern(..) => unreachable!(),
