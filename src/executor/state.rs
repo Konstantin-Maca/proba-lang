@@ -42,7 +42,7 @@ pub(super) enum Pattern {
 }
 
 #[derive(Debug, Clone)]
-pub(super) enum MethodBody {
+pub(super) enum Body {
     Do(Node),
     Rust(fn(&mut State) -> Result<usize, Interrupt>),
 }
@@ -57,7 +57,7 @@ pub(crate) struct State {
     // (owner, name) => { pointer | int | float }
     pub(super) fields: HashMap<(usize, String), Value>,
     // (owner, pattern) => { pointer | node }
-    pub(super) methods: HashMap<(usize, Pattern), MethodBody>,
+    pub(super) methods: HashMap<(usize, Pattern), Body>,
 }
 
 impl State {
@@ -169,7 +169,7 @@ impl State {
 
     /// Return true, if method is re-defined;
     /// return false, if new method is defined.
-    pub(super) fn define_method(&mut self, ptr: usize, pattern: Pattern, body: MethodBody) -> bool {
+    pub(super) fn define_method(&mut self, ptr: usize, pattern: Pattern, body: Body) -> bool {
         match self.methods.insert((ptr, pattern), body) {
             Some(_) => true,
             None => false,
@@ -180,7 +180,7 @@ impl State {
         &self,
         ptr: usize,
         keyword: String,
-    ) -> Option<(&(usize, Pattern), &MethodBody)> {
+    ) -> Option<(&(usize, Pattern), &Body)> {
         match self
             .methods
             .get_key_value(&(ptr, Pattern::Kw(keyword.clone())))
@@ -197,10 +197,7 @@ impl State {
         }
     }
     /// Use when message is a name (word (keyword)).
-    pub(super) fn get_method_ctx(
-        &self,
-        keyword: String,
-    ) -> Option<(&(usize, Pattern), &MethodBody)> {
+    pub(super) fn get_method_ctx(&self, keyword: String) -> Option<(&(usize, Pattern), &Body)> {
         for &(ptr, is_for_method) in self.contexts.iter().rev() {
             match self.get_method(ptr, keyword.clone()) {
                 Some(method) => return Some(method),
@@ -217,7 +214,7 @@ impl State {
         &mut self,
         ptr: usize,
         message: usize,
-    ) -> Option<((usize, Pattern), MethodBody)> {
+    ) -> Option<((usize, Pattern), Body)> {
         for (key, body) in self.methods.clone().iter() {
             match key.1 {
                 Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)

@@ -3,7 +3,7 @@ use std::ops::Deref;
 use crate::lexer::{Node, NodeData, PatternKind};
 
 pub(crate) use self::state::State;
-use self::state::{MethodBody, Pattern, Value};
+use self::state::{Body, Pattern, Value};
 
 mod standard;
 pub(super) mod state;
@@ -212,7 +212,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             state.define_method(
                 state.contexts.last().unwrap().0,
                 pattern,
-                MethodBody::Do(body.clone()),
+                Body::Do(body.clone()),
             );
             Ok(state.contexts.last().unwrap().0)
         }
@@ -248,7 +248,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             state.define_method(
                 state.contexts.last().unwrap().0,
                 pattern,
-                MethodBody::Rust(*body_func),
+                Body::Rust(*body_func),
             );
             Ok(state.contexts.last().unwrap().0)
         }
@@ -272,7 +272,7 @@ fn execute_queue(state: &mut State, queue: &Vec<Node>, line: usize) -> Result<us
 fn execute_method(
     state: &mut State,
     owner_ptr: usize,
-    body: MethodBody,
+    body: Body,
     arg: (String, usize),
 ) -> Result<usize, Interrupt> {
     let context = state.copy(owner_ptr).unwrap();
@@ -280,8 +280,8 @@ fn execute_method(
     state.let_field(context, arg.0, Value::Pointer(arg.1));
     let result = loop {
         let result = match &body {
-            MethodBody::Do(body) => execute(state, body.clone()),
-            MethodBody::Rust(body_func) => body_func(state),
+            Body::Do(body) => execute(state, body.clone()),
+            Body::Rust(body_func) => body_func(state),
         };
         match result {
             Ok(ptr) => break Ok(ptr),

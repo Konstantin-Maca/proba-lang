@@ -1,6 +1,11 @@
+use crate::lexer::lex;
+use crate::parser::parse_file;
+
 use super::fast::exec;
-use super::state::{MethodBody, Pattern, State, Value};
-use super::Interrupt;
+use super::state::{Body, Pattern, State, Value};
+use super::{execute, Interrupt};
+
+const STD_DIR: &str = "./std/";
 
 pub fn prepare_std(state: &mut State) {
     state.objects.insert(0, (0, 0));
@@ -12,12 +17,12 @@ pub fn prepare_std(state: &mut State) {
     state.define_method(
         0,
         Pattern::Kw("exit".into()),
-        MethodBody::Rust(|state| Err(Interrupt::Exit(state.recipient().unwrap()))),
+        Body::Rust(|state| Err(Interrupt::Exit(state.recipient().unwrap()))),
     );
     state.define_method(
         0,
         Pattern::Kw("return".into()),
-        MethodBody::Rust(|state| Err(Interrupt::Return(state.recipient().unwrap()))),
+        Body::Rust(|state| Err(Interrupt::Return(state.recipient().unwrap()))),
     );
 
     exec(
@@ -31,14 +36,14 @@ pub fn prepare_std(state: &mut State) {
         state.define_method(
             0,
             Pattern::Kw("==".into()),
-            MethodBody::Rust(|state| {
+            Body::Rust(|state| {
                 let recipient_ptr = state.recipient().unwrap();
                 let subcontext = state.copy(recipient_ptr).unwrap();
                 state.contexts.push((subcontext, false));
                 state.define_method(
                     state.here().unwrap(),
                     Pattern::PtA(0, "other".into()),
-                    MethodBody::Rust(|state| {
+                    Body::Rust(|state| {
                         let first_recipient_ptr =
                             state.objects.get(&state.recipient().unwrap()).unwrap().0;
                         let other_ptr = state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
@@ -59,31 +64,9 @@ pub fn prepare_std(state: &mut State) {
         "
         at (let None copy Object) on : none? do True;
         at Object on : none? do False;
-
-        at (let List copy Object) (
-            let Node copy Object;
-            let End copy Node;
-            at Node (
-                let data Object;
-                let next End;
-
-                on : get do data;
-                on : getNext do next;
-                on : end? do False;
-            );
-            at End (
-                let next End;
-
-                on : get do None;
-                on : end? do True;
-            );
-
-            let first End;
-
-            on : first do first get;
-            on : empty? do first end?;
-        );
         ",
     )
     .unwrap();
+
+    execute(state, lex(parse_file(STD_DIR.to_string() + "list.proba"))).unwrap();
 }

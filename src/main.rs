@@ -55,7 +55,7 @@ fn parse_args() -> Config {
 }
 
 fn proba_error(message: &str) -> ! {
-    println!("Proba error: {message}");
+    println!("\nProba error: {message}");
     exit(0)
 }
 
@@ -81,6 +81,6 @@ fn main() {
         Err(Interrupt::Repeat) => unreachable!(),
     };
     if config.debug_answer {
-        println!("Program returned: {answer}");
+        println!("\nProgram returned: {answer}");
     }
 }

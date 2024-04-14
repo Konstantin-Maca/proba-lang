@@ -1,0 +1,23 @@
+at (let List copy Object) (
+    let Node copy Object;
+    let End copy Node;
+    at Node (
+        let data Object;
+        let next End;
+
+        on : get do data;
+        on : getNext do next;
+        on : end? do False;
+    );
+    at End (
+        let next End;
+
+        on : get do None;
+        on : end? do True;
+    );
+
+    let first End;
+
+    on : first do first get;
+    on : empty? do first end?;
+);
