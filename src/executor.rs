@@ -32,7 +32,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             let message = match msg_node.data.deref() {
                 NodeData::Name(ref name) => {
                     let some_method = state.get_method(recipient, name.clone());
-                    if let Some((_, body)) = some_method {
+                    if let Some((_, _, body)) = some_method {
                         // Try call method of the recipient-object
                         return execute_method(
                             state,
@@ -54,20 +54,19 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                     ),
                 ))?,
             };
-            let name = match &method.0 .1 {
+            let name = match method.1 {
                 Pattern::Kw(_) => unreachable!(),
                 Pattern::Eq(_) => "".into(),
                 Pattern::EqA(_, name) => name.clone(),
                 Pattern::Pt(_) => "".into(),
                 Pattern::PtA(_, name) => name.clone(),
             };
-            let body = method.1.clone();
-            execute_method(state, recipient, body, (name, message))
+            execute_method(state, recipient, method.2, (name, message))
         }
         NodeData::Name(name) => {
             let some_method = state.get_method_ctx(name.clone());
             let context = state.contexts.last().unwrap().0;
-            if let Some(((_, pattern), body)) = some_method {
+            if let Some((_, pattern, body)) = some_method {
                 // Try call method of the context-object
                 let name = match pattern {
                     Pattern::Kw(_) => "".into(),
@@ -134,7 +133,8 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             // only if you entered into it from another context,
             // that is a copy of the current context-object's creation context.
             // Exception: the global context.
-            let heres_context = state.objects[&state.here().unwrap()].1;
+            let here = state.here().unwrap();
+            let heres_context = state.objects.iter().find(|obj| obj.0 == here).unwrap().2;
             if state.here().unwrap() != 1
                 && !state
                     .relation(state.contexts[state.contexts.len() - 2].0, heres_context)
@@ -163,7 +163,8 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             // that is a copy of the current context-object's creation context.
             // Exception: the global context.
             let super_context = state.contexts[state.contexts.len() - 2].0;
-            let heres_context = state.objects[&state.here().unwrap()].1;
+            let here = state.here().unwrap();
+            let heres_context = state.objects.iter().find(|obj| obj.0 == here).unwrap().2;
             if state.here().unwrap() != 1 && !state.relation(super_context, heres_context).is_some()
             {
                 Err(Interrupt::Error(

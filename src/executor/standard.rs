@@ -8,8 +8,8 @@ use super::{execute, Interrupt};
 const STD_DIR: &str = "./std/";
 
 pub fn prepare_std(state: &mut State) {
-    state.objects.insert(0, (0, 0));
-    state.objects.insert(1, (0, 1));
+    state.objects.push((0, 0, 0));
+    state.objects.push((1, 0, 1));
     state.contexts.push((1, false));
     state.let_field(1, "Object".into(), Value::Pointer(0)); // `at <Context> let Object <Object>`
     state.op_count = 2;
@@ -100,8 +100,12 @@ pub fn prepare_std(state: &mut State) {
                     state.here().unwrap(),
                     Pattern::PtA(0, "other".into()),
                     Body::Rust(|state| {
-                        let first_recipient_ptr =
-                            state.objects.get(&state.recipient().unwrap()).unwrap().0;
+                        let first_recipient_ptr = state
+                            .objects
+                            .iter()
+                            .find(|obj| obj.0 == state.recipient().unwrap())
+                            .unwrap()
+                            .0;
                         let other_ptr = state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
                         if first_recipient_ptr == other_ptr {
                             Ok(state.get_field_ctx("True".into()).unwrap().unwrap_ptr())
@@ -142,8 +146,12 @@ pub fn prepare_std(state: &mut State) {
                         Pattern::PtA(int_ptr, "other".into()),
                         Body::Rust(|state| {
                             // first_recipient.value == message.value
-                            let first_recipient_ptr =
-                                state.objects.get(&state.recipient().unwrap()).unwrap().0;
+                            let first_recipient_ptr = state
+                                .objects
+                                .iter()
+                                .find(|obj| obj.0 == state.recipient().unwrap())
+                                .unwrap()
+                                .0;
                             let left_value = state
                                 .get_field(first_recipient_ptr, "value".into())
                                 .unwrap()
@@ -169,8 +177,12 @@ pub fn prepare_std(state: &mut State) {
                         state.here().unwrap(),
                         Pattern::PtA(0, "other".into()),
                         Body::Rust(|state| {
-                            let first_recipient_ptr =
-                                state.objects.get(&state.recipient().unwrap()).unwrap().0;
+                            let first_recipient_ptr = state
+                                .objects
+                                .iter()
+                                .find(|obj| obj.0 == state.recipient().unwrap())
+                                .unwrap()
+                                .0;
                             let other_ptr =
                                 state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
 

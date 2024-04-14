@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::lexer::Node;
 
 use super::{execute_method, standard::prepare_std, Interrupt};
@@ -32,13 +30,24 @@ impl Value {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub(super) enum Pattern {
     Kw(String),
     Eq(usize),
     EqA(usize, String),
     Pt(usize),
     PtA(usize, String),
+}
+
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Kw(l0), Self::Kw(r0)) => l0 == r0,
+            (Self::Eq(l0) | Self::EqA(l0, _), Self::Eq(r0) | Self::EqA(r0, _)) => l0 == r0,
+            (Self::Pt(l0) | Self::PtA(l0, _), Self::Pt(r0) | Self::PtA(r0, _)) => l0 == r0,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -52,12 +61,9 @@ pub(crate) struct State {
     pub(super) op_count: usize,
     pub(super) contexts: Vec<(usize, bool)>, // Context (pointer, is pushed for method?)
 
-    // ptr => (parent, context)
-    pub(super) objects: HashMap<usize, (usize, usize)>,
-    // (owner, name) => { pointer | int | float }
-    pub(super) fields: HashMap<(usize, String), Value>,
-    // (owner, pattern) => { pointer | node }
-    pub(super) methods: HashMap<(usize, Pattern), Body>,
+    pub(crate) objects: Vec<(usize, usize, usize)>, // (ptr, parent_ptr, cotnext_ptr)
+    pub(super) fields: Vec<(usize, String, Value)>, // (owner_ptr, name, ptr|int|float)
+    pub(super) methods: Vec<(usize, Pattern, Body)>, // (owner_ptr, pattern, body)
 }
 
 impl State {
@@ -65,9 +71,9 @@ impl State {
         Self {
             op_count: 0,
             contexts: Vec::new(),
-            objects: HashMap::new(),
-            fields: HashMap::new(),
-            methods: HashMap::new(),
+            objects: Vec::new(),
+            fields: Vec::new(),
+            methods: Vec::new(),
         }
     }
 
@@ -82,18 +88,18 @@ impl State {
     pub fn recipient(&self) -> Option<usize> {
         for (ptr, is_for_method) in self.contexts.iter().rev() {
             if *is_for_method {
-                return Some(self.objects.get(ptr)?.0);
+                return Some(self.objects.iter().find(|obj| obj.0 == *ptr)?.1);
             }
         }
         None // NOTE: In theory, this is unreachable, but I'm not sure.
     }
 
     pub(super) fn copy(&mut self, ptr: usize) -> Option<usize> {
-        self.objects.get(&ptr)?;
+        self.objects.iter().find(|obj| obj.0 == ptr)?;
         let new_ptr = self.op_count;
         self.op_count += 1;
         self.objects
-            .insert(new_ptr, (ptr, self.contexts.last().unwrap().0));
+            .push((new_ptr, ptr, self.contexts.last().unwrap().0));
         return Some(new_ptr);
     }
 
@@ -104,49 +110,58 @@ impl State {
         if ptr == 0 {
             return None;
         }
-        match self.objects.get(&ptr) {
-            Some((ptr, _)) => Some(self.relation(*ptr, parent_ptr)? + 1),
+        match self.objects.iter().find(|obj| obj.0 == ptr) {
+            Some((_, ptr, _)) => Some(self.relation(*ptr, parent_ptr)? + 1),
             None => None,
         }
     }
 
     /// Return Some if success, else None.
-    pub(super) fn let_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
-        if !self.objects.contains_key(&ptr) {
-            None?
-        }
-        match self.fields.get_mut(&(ptr, name.clone())) {
-            Some(val) => *val = value,
-            None => {
-                self.fields.insert((ptr, name.clone()), value);
-            }
+    pub fn let_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
+        self.objects.iter().find(|obj| obj.0 == ptr)?;
+        // get_mut(&(ptr, name.clone()))
+        match self
+            .fields
+            .iter_mut()
+            .find(|field| (field.0, field.1.clone()) == (ptr, name.clone()))
+        {
+            Some(field) => field.2 = value,
+            None => self.fields.push((ptr, name.clone(), value)),
         };
         Some(())
     }
-    pub(crate) fn set_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
-        let field_value = self.fields.get_mut(&(ptr, name))?;
-        *field_value = value;
+    pub fn set_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
+        let field = self
+            .fields
+            .iter_mut()
+            .find(|field| (field.0, field.1.clone()) == (ptr, name.clone()))?;
+        (*field).2 = value;
         Some(())
     }
     pub fn get_field(&self, ptr: usize, name: String) -> Option<Value> {
-        match self.fields.get(&(ptr, name.clone())) {
-            Some(val) => Some(*val),
+        match self
+            .fields
+            .iter()
+            .find(|field| (field.0, field.1.clone()) == (ptr, name.clone()))
+        {
+            Some(field) => Some(field.2),
             None => {
                 if ptr == 0 {
                     None?
                 } else {
-                    let parent_ptr = self.objects.get(&ptr)?.0;
+                    let parent_ptr = self.objects.iter().find(|obj| obj.0 == ptr)?.1;
                     self.get_field(parent_ptr, name)
                 }
             }
         }
     }
-    pub(super) fn get_field_ctx(&self, name: String) -> Option<Value> {
+    pub fn get_field_ctx(&self, name: String) -> Option<Value> {
         // You can get field in a context-object,
         // only if you entered into it from another context,
         // that is a copy of the current context-object's creation context.
         // Exception: the global context.
-        let heres_context = self.objects[&self.here().unwrap()].1;
+        let here = self.here().unwrap();
+        let heres_context = self.objects.iter().find(|obj| obj.0 == here)?.2;
         if self.here().unwrap() != 1
             && !self
                 .relation(self.contexts[self.contexts.len() - 2].0, heres_context)
@@ -170,34 +185,44 @@ impl State {
     /// Return true, if method is re-defined;
     /// return false, if new method is defined.
     pub(super) fn define_method(&mut self, ptr: usize, pattern: Pattern, body: Body) -> bool {
-        match self.methods.insert((ptr, pattern), body) {
-            Some(_) => true,
-            None => false,
-        }
+        // Check if same method is already defined
+        let some_method_pos = self
+            .methods
+            .iter()
+            .position(|method| (method.0, method.1.clone()) == (ptr, pattern.clone()));
+        let redefined = if let Some(index) = some_method_pos {
+            self.methods.remove(index);
+            true
+        } else {
+            false
+        };
+        self.methods.push((ptr, pattern, body));
+        redefined
     }
     /// Use when message is a name (word (keyword)).
     pub(super) fn get_method(
         &self,
         ptr: usize,
         keyword: String,
-    ) -> Option<(&(usize, Pattern), &Body)> {
+    ) -> Option<&(usize, Pattern, Body)> {
         match self
             .methods
-            .get_key_value(&(ptr, Pattern::Kw(keyword.clone())))
+            .iter()
+            .find(|method| (method.0, method.1.clone()) == (ptr, Pattern::Kw(keyword.clone())))
         {
             Some(method) => Some(method),
             None => {
                 if ptr == 0 {
                     None?
                 } else {
-                    let parent_ptr = self.objects.get(&ptr)?.0;
+                    let parent_ptr = self.objects.iter().find(|obj| obj.0 == ptr)?.1;
                     self.get_method(parent_ptr, keyword)
                 }
             }
         }
     }
     /// Use when message is a name (word (keyword)).
-    pub(super) fn get_method_ctx(&self, keyword: String) -> Option<(&(usize, Pattern), &Body)> {
+    pub(super) fn get_method_ctx(&self, keyword: String) -> Option<&(usize, Pattern, Body)> {
         for &(ptr, is_for_method) in self.contexts.iter().rev() {
             match self.get_method(ptr, keyword.clone()) {
                 Some(method) => return Some(method),
@@ -214,32 +239,32 @@ impl State {
         &mut self,
         ptr: usize,
         message: usize,
-    ) -> Option<((usize, Pattern), Body)> {
-        for (key, body) in self.methods.clone().iter() {
-            match key.1 {
+    ) -> Option<(usize, Pattern, Body)> {
+        for (owner_ptr, pattern, body) in self.methods.clone().iter() {
+            match pattern {
                 Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
-                    if key.0 == ptr && {
+                    if *owner_ptr == ptr && {
                         // pattern_ptr == message
-                        let method = self.get_method(pattern_ptr, "==".into()).unwrap();
+                        let method = self.get_method(*pattern_ptr, "==".into()).unwrap();
                         let ptr =
-                            execute_method(self, pattern_ptr, method.1.clone(), ("".into(), 0))
+                            execute_method(self, *pattern_ptr, method.2.clone(), ("".into(), 0))
                                 .unwrap();
                         let method = self.match_method(ptr, message).unwrap();
-                        let arg_name = match &method.0 .1 {
+                        let arg_name = match &method.1 {
                             Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
                             Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                             _ => unreachable!(),
                         };
-                        let ptr = execute_method(self, ptr, method.1.clone(), (arg_name, message));
+                        let ptr = execute_method(self, ptr, method.2.clone(), (arg_name, message));
                         ptr.unwrap() == self.get_field(1, "True".into()).unwrap().unwrap_ptr()
                     } =>
                 {
-                    return Some((key.clone(), body.clone()));
+                    return Some((*owner_ptr, pattern.clone(), body.clone()));
                 }
                 Pattern::Pt(pattern_ptr) | Pattern::PtA(pattern_ptr, ..)
-                    if key.0 == ptr && self.relation(message, pattern_ptr).is_some() =>
+                    if *owner_ptr == ptr && self.relation(message, *pattern_ptr).is_some() =>
                 {
-                    return Some((key.clone(), body.clone()));
+                    return Some((*owner_ptr, pattern.clone(), body.clone()));
                 }
                 _ => continue,
             }
@@ -247,7 +272,7 @@ impl State {
         if ptr == 0 {
             None?
         } else {
-            let parent_ptr = self.objects.get(&ptr)?.0;
+            let parent_ptr = self.objects.iter().find(|obj| obj.0 == ptr)?.1;
             self.match_method(parent_ptr, message)
         }
     }
@@ -255,18 +280,18 @@ impl State {
     fn count_links(&self, ptr: usize) -> usize {
         let mut count = 0;
         // As parent and context owner
-        for (_, (pn, c)) in &self.objects {
-            if *pn == ptr {
+        for (_, parent, context) in &self.objects {
+            if *parent == ptr {
                 count += 1;
             }
-            if *c == ptr {
+            if *context == ptr {
                 count += 1;
             }
         }
         // As field value
-        for pair in &self.fields {
-            if let Value::Pointer(p) = pair.1 {
-                if *p == ptr {
+        for field in &self.fields {
+            if let Value::Pointer(p) = field.2 {
+                if p == ptr {
                     count += 1;
                 }
             }
@@ -285,7 +310,7 @@ impl State {
         let mut run = true;
         while run {
             run = false;
-            for (ptr, _) in self.objects.clone() {
+            for (_, ptr, _) in self.objects.clone() {
                 if white_list.contains(&ptr) {
                     continue;
                 }
@@ -298,8 +323,8 @@ impl State {
         }
     }
     fn delete_object(&mut self, ptr: usize) {
-        self.methods.retain(|(p, _), _| *p != ptr);
-        self.fields.retain(|(p, _), _| *p != ptr);
-        self.objects.remove(&ptr).unwrap();
+        self.methods.retain(|method| method.0 != ptr);
+        self.fields.retain(|field| field.0 != ptr);
+        self.objects.retain(|obj| obj.0 != ptr);
     }
 }
