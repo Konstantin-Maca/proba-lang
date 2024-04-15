@@ -18,8 +18,8 @@ mod fast {
 #[derive(Debug)]
 pub enum Interrupt {
     Exit(usize),
-    Return(usize),
-    Repeat,
+    Return(usize), // TODO: Keyword for it
+    Repeat,        // TODO: Keyword for it
     Error(usize, String),
 }
 

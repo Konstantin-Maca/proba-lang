@@ -76,12 +76,12 @@ impl State {
             methods: Vec::new(),
         }
     }
-
     pub fn standard() -> Self {
         let mut state = Self::new();
         prepare_std(&mut state);
         state
     }
+
     pub fn here(&self) -> Option<usize> {
         Some(self.contexts.last()?.0)
     }
@@ -93,7 +93,6 @@ impl State {
         }
         None // NOTE: In theory, this is unreachable, but I'm not sure.
     }
-
     pub(super) fn copy(&mut self, ptr: usize) -> Option<usize> {
         self.objects.iter().find(|obj| obj.0 == ptr)?;
         let new_ptr = self.op_count;
@@ -102,7 +101,6 @@ impl State {
             .push((new_ptr, ptr, self.contexts.last().unwrap().0));
         return Some(new_ptr);
     }
-
     pub fn relation(&self, ptr: usize, parent_ptr: usize) -> Option<usize> {
         if ptr == parent_ptr {
             return Some(0);
@@ -249,14 +247,18 @@ impl State {
                         let ptr =
                             execute_method(self, *pattern_ptr, method.2.clone(), ("".into(), 0))
                                 .unwrap();
+
                         let method = self.match_method(ptr, message).unwrap();
                         let arg_name = match &method.1 {
                             Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
                             Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                             _ => unreachable!(),
                         };
-                        let ptr = execute_method(self, ptr, method.2.clone(), (arg_name, message));
-                        ptr.unwrap() == self.get_field(1, "True".into()).unwrap().unwrap_ptr()
+                        let result_ptr =
+                            execute_method(self, ptr, method.2.clone(), (arg_name, message));
+
+                        result_ptr.unwrap()
+                            == self.get_field(1, "True".into()).unwrap().unwrap_ptr()
                     } =>
                 {
                     return Some((*owner_ptr, pattern.clone(), body.clone()));
