@@ -113,6 +113,9 @@ impl State {
             None => None,
         }
     }
+    pub fn parent(&self, ptr: usize) -> Option<usize> {
+        Some(self.objects.iter().find(|obj| obj.0 == ptr)?.1)
+    }
 
     /// Return Some if success, else None.
     pub fn let_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {

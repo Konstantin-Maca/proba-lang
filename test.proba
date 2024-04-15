@@ -19,5 +19,30 @@ a == 23 println; [ -> True ]
 a == 28 println; [ -> False ]
 a == a println; [ -> True ]
 
+[ match..case ]
+let my_matcher copy Object;
+at my_matcher (
+    on True do 1;
+    on False do 0;
+    on Object do None; [ <- default case ]
+);
+my_matcher True println; [ -> 1 ]
+my_matcher 42 println; [ -> None ]
+
+[ ...or ]
+{
+    on True do 1;
+    on False do 0;
+    on Object do None;
+} False println; [ -> 0 ]
+
+[ if..then..else ]
+[ Objects `True` and `False` have similar methods chains: `on : then; Object; : else; Object do ...;` ]
+(
+    (1 == -1)
+        then Object [ ! All cases will be executed anyway ]
+        else None
+) println; [ -> None ]
+
 [ Exit method ]
 Object exit;
