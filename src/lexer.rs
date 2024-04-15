@@ -16,6 +16,9 @@ pub enum PatternKind {
 #[derive(Debug, Clone)]
 pub enum NodeData {
     Here,
+    Me,
+    Return,
+    Repeat,
     Name(String),
     Int(isize),
     Float(f64),
@@ -89,20 +92,14 @@ fn lex_message_chain(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
     let recipient = lex_singleton(tokens, i)?;
     let line = recipient.line;
     let mut message = match lex_singleton(tokens, i) {
-        Some(node) => Node {
-            data: Box::new(NodeData::Message(recipient, node)),
-            line,
-        },
+        Some(node) => Node::new(NodeData::Message(recipient, node), line),
         None => return Some(recipient),
     };
 
     while *i < tokens.len() {
         match lex_singleton(tokens, i) {
             Some(node) => {
-                message = Node {
-                    data: Box::new(NodeData::Message(message, node)),
-                    line,
-                }
+                message = Node::new(NodeData::Message(message, node), line)
             }
             None => break,
         }
@@ -120,10 +117,19 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
         | TokenData::Do => None?,
         TokenData::Here => {
             *i += 1;
-            Node {
-                data: Box::new(NodeData::Here),
-                line: token.line,
-            }
+            Node::new(NodeData::Here, token.line)
+        }
+        TokenData::Me => {
+            *i += 1;
+            Node::new(NodeData::Me, token.line)
+        }
+        TokenData::Return => {
+            *i += 1;
+            Node::new(NodeData::Return, token.line)
+        }
+        TokenData::Repeat => {
+            *i += 1;
+            Node::new(NodeData::Repeat, token.line)
         }
         TokenData::Name(name) => {
             *i += 1;
@@ -136,24 +142,15 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
         }
         TokenData::Int(value) => {
             *i += 1;
-            Node {
-                data: Box::new(NodeData::Int(*value)),
-                line: token.line,
-            }
+            Node::new(NodeData::Int(*value), token.line)
         }
         TokenData::Float(value) => {
             *i += 1;
-            Node {
-                data: Box::new(NodeData::Float(*value)),
-                line: token.line,
-            }
+            Node::new(NodeData::Float(*value), token.line)
         }
         TokenData::String(string) => {
             *i += 1;
-            Node {
-                data: Box::new(NodeData::String(string.clone())),
-                line: token.line,
-            }
+            Node::new(NodeData::String(string.clone()), token.line)
         }
         TokenData::OpenParen => {
             *i += 1;
@@ -176,10 +173,7 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             match &tokens.get(*i).expect("Brace is never closed").data {
                 TokenData::CloseContext => {
                     *i += 1;
-                    Node {
-                        data: Box::new(NodeData::QuickContext(queue)),
-                        line: token.line,
-                    }
+                    Node::new(NodeData::QuickContext(queue), token.line)
                 }
                 TokenData::CloseParen => panic!("Unexpected closing paren"),
                 t => unreachable!("Unexpected token: {:?}", t),
@@ -201,13 +195,10 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             };
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
-                Some(node) => Box::new(NodeData::Let(name.clone(), node)),
+                Some(node) => NodeData::Let(name.clone(), node),
                 None => proba_error("Syntax: Empty let-statement value expression."),
             };
-            Node {
-                data: node_data,
-                line: token.line,
-            }
+            Node::new(node_data, token.line)
         }
         TokenData::Set => {
             // "set" NAME MESSAGE_CHAIN EOQ
@@ -218,23 +209,17 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             };
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
-                Some(node) => Box::new(NodeData::Set(name.clone(), node)),
+                Some(node) => NodeData::Set(name.clone(), node),
                 None => proba_error("Syntax: Empty let-statement value expression."),
             };
-            Node {
-                data: node_data,
-                line: token.line,
-            }
+            Node::new(node_data, token.line)
         }
         TokenData::At => {
             // "at" SINGLETON MESSAGE_CHAIN EOQ
             *i += 1;
             let context = lex_singleton(tokens, i).expect("Expecting singleton message");
             match lex_message_chain(tokens, i) {
-                Some(node) => Node {
-                    data: Box::new(NodeData::At(context, node)),
-                    line: token.line,
-                },
+                Some(node) => Node::new(NodeData::At(context, node), token.line),
                 None => panic!("Empty context message"), // Node::At(Box::new(context.clone()), Box::new(context)),
             }
         }
@@ -255,15 +240,9 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                                 let data = NodeData::Name(name.clone());
                                 let data = NodeData::Pattern(
                                     PatternKind::Keyword,
-                                    Node {
-                                        data: Box::new(data),
-                                        line: token.line,
-                                    },
+                                    Node::new(data, token.line),
                                 );
-                                patterns.push(Node {
-                                    data: Box::new(data),
-                                    line: token.line,
-                                });
+                                patterns.push(Node::new(data, token.line));
                                 *i += 1;
                                 match &tokens.get(*i).expect("Unfinished method definition").data {
                                     TokenData::EOQ => {
@@ -271,10 +250,7 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                                         continue;
                                     }
                                     TokenData::Do => break,
-                                    t => panic!(
-                                        "Expecting `;', or `do' after a keyword-pattern, got: {:?}",
-                                        t
-                                    ),
+                                    t => panic!("Expecting `;', or `do' after a keyword-pattern, got: {t:?}"),
                                 }
                             }
                             _ => panic!("Expecting a name after key-operator `:'"),
@@ -299,19 +275,10 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                         };
                         *i += 1;
                         let node_data = NodeData::As(
-                            Node {
-                                data: Box::new(NodeData::Pattern(
-                                    pattern_kind,
-                                    pattern_message.clone(),
-                                )),
-                                line: pattern_message.line,
-                            },
+                            Node::new(NodeData::Pattern(pattern_kind, pattern_message.clone()), pattern_message.line),
                             name,
                         );
-                        patterns.push(Node {
-                            data: Box::new(node_data),
-                            line: token.line,
-                        });
+                        patterns.push(Node::new(node_data, token.line));
                         match tokens.get(*i).expect("Unfinished method definition").data {
                             TokenData::EOQ => {
                                 *i += 1;
@@ -322,18 +289,12 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                         }
                     }
                     TokenData::EOQ => {
-                        patterns.push(Node {
-                            data: Box::new(NodeData::Pattern(pattern_kind, pattern_message)),
-                            line: token.line,
-                        });
+                        patterns.push(Node::new(NodeData::Pattern(pattern_kind, pattern_message), token.line));
                         *i += 1;
                         continue;
                     }
                     TokenData::Do => {
-                        patterns.push(Node {
-                            data: Box::new(NodeData::Pattern(pattern_kind, pattern_message)),
-                            line: token.line,
-                        });
+                        patterns.push(Node::new(NodeData::Pattern(pattern_kind, pattern_message), token.line));
                         break;
                     }
                     _ => panic!("Expecting `;' or one of keywords `as' and `do'"),
@@ -353,10 +314,7 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                 }
                 _ => unreachable!(),
             };
-            Node {
-                data: Box::new(data),
-                line: token.line,
-            }
+            Node::new(data, token.line)
         }
     };
     return Some(node);
@@ -386,34 +344,16 @@ pub(crate) fn expand_method_definition(node_data: NodeData, line: usize) -> Node
             let mut queue_vec = Vec::new();
             match patterns[0].data.deref() {
                 NodeData::As(_, name) => {
-                    let name_node = Node {
-                        data: Box::new(NodeData::Name(name.into())),
-                        line,
-                    };
-                    queue_vec.push(Node {
-                        data: Box::new(NodeData::Let(name.into(), name_node)),
-                        line,
-                    });
+                    let name_node = Node::new(NodeData::Name(name.into()), line);
+                    queue_vec.push(Node::new(NodeData::Let(name.into(), name_node), line));
                 }
                 NodeData::Pattern(_, _) => (),
                 _ => unreachable!(),
             };
-            let next_definition_node = Node {
-                data: Box::new(expand_method_definition(
-                    NodeData::OnDo(patterns[1..].into(), body.clone()),
-                    line,
-                )),
-                line,
-            };
-            let here_node = Node {
-                data: Box::new(NodeData::Here),
-                line,
-            };
+            let next_definition_node = Node::new(expand_method_definition(NodeData::OnDo(patterns[1..].into(), body.clone()), line), line);
+            let here_node = Node::new(NodeData::Here, line);
             queue_vec.append(&mut vec![next_definition_node, here_node]);
-            let subcontext_node = Node {
-                data: Box::new(NodeData::QuickContext(queue_vec)),
-                line,
-            };
+            let subcontext_node = Node::new(NodeData::QuickContext(queue_vec), line);
             NodeData::OnDo(vec![patterns[0].clone()], subcontext_node)
         }
         n => panic!("Wrong token type to expand method definition {n:?}"),

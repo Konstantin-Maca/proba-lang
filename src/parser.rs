@@ -13,6 +13,7 @@ pub enum TokenData {
     CloseContext,
     EOQ,
     Here,
+    Me,
     Copy,
     At,
     Let,
@@ -20,6 +21,8 @@ pub enum TokenData {
     On,
     Do,
     As,
+    Return, // NOTE: I've just realized, that it may be useless
+    Repeat,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,7 @@ pub fn parse_str(string: &str) -> Vec<Token> {
             "}" => TokenData::CloseContext,
             ";" => TokenData::EOQ,
             "here" => TokenData::Here,
+            "me" => TokenData::Me,
             "copy" => TokenData::Copy,
             "at" => TokenData::At,
             "let" => TokenData::Let,
@@ -56,6 +60,8 @@ pub fn parse_str(string: &str) -> Vec<Token> {
             "on" => TokenData::On,
             "do" => TokenData::Do,
             "as" => TokenData::As,
+            "return" => TokenData::Return,
+            "repeat" => TokenData::Repeat,
             s => {
                 for c in s.chars() {
                     if c == '\n' {

@@ -85,13 +85,14 @@ impl State {
     pub fn here(&self) -> Option<usize> {
         Some(self.contexts.last()?.0)
     }
+    /// Return None, when was called at not method.
     pub fn recipient(&self) -> Option<usize> {
         for (ptr, is_for_method) in self.contexts.iter().rev() {
             if *is_for_method {
                 return Some(self.objects.iter().find(|obj| obj.0 == *ptr)?.1);
             }
         }
-        None // NOTE: In theory, this is unreachable, but I'm not sure.
+        None
     }
     pub(super) fn copy(&mut self, ptr: usize) -> Option<usize> {
         self.objects.iter().find(|obj| obj.0 == ptr)?;

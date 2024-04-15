@@ -6,7 +6,7 @@ pub(crate) use self::state::State;
 use self::state::{Body, Pattern, Value};
 
 mod standard;
-pub(super) mod state;
+pub mod state;
 mod fast {
     pub(crate) fn exec(state: &mut super::State, code: &str) -> Result<usize, super::Interrupt> {
         let tokens = crate::parser::parse_str(code);
@@ -25,7 +25,15 @@ pub enum Interrupt {
 
 pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
     match node.data.deref() {
-        NodeData::Here => Ok(state.contexts.last().unwrap().0),
+        NodeData::Here => Ok(state.here().unwrap()),
+        NodeData::Me => {
+            match state.recipient() {
+                Some(ptr) => Ok(ptr),
+                None => Ok(state.contexts.first().unwrap().0)
+            }
+        },
+        NodeData::Return => Err(Interrupt::Return(state.recipient().unwrap())),
+        NodeData::Repeat => Err(Interrupt::Repeat),
         NodeData::Message(rec_node, msg_node) => {
             // Execute recipient
             let recipient = execute(state, rec_node.clone())?;

@@ -21,11 +21,6 @@ pub fn prepare_std(state: &mut State) {
     );
     state.define_method(
         0,
-        Pattern::Kw("return".into()),
-        Body::Rust(|state| Err(Interrupt::Return(state.recipient().unwrap()))),
-    );
-    state.define_method(
-        0,
         Pattern::Kw("print".into()),
         Body::Rust(|state| {
             let ptr = state.recipient().unwrap();
@@ -147,7 +142,8 @@ pub fn prepare_std(state: &mut State) {
                         Pattern::PtA(int_ptr, "other".into()),
                         Body::Rust(|state| {
                             // first_recipient.value == message.value
-                            let first_recipient_ptr = state.parent(state.recipient().unwrap()).unwrap();
+                            let first_recipient_ptr =
+                                state.parent(state.recipient().unwrap()).unwrap();
                             let left_value = state
                                 .get_field(first_recipient_ptr, "value".into())
                                 .unwrap()
@@ -173,7 +169,8 @@ pub fn prepare_std(state: &mut State) {
                         state.here().unwrap(),
                         Pattern::PtA(0, "other".into()),
                         Body::Rust(|state| {
-                            let first_recipient_ptr = state.parent(state.recipient().unwrap()).unwrap();
+                            let first_recipient_ptr =
+                                state.parent(state.recipient().unwrap()).unwrap();
                             let other_ptr =
                                 state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
 
