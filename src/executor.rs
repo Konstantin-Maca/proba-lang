@@ -261,12 +261,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         NodeKind::Import(name, node) => {
             // TODO: Put here dir of the executed file
             let target_object_ptr = execute(state, node.clone())?;
-            import_module(
-                state,
-                target_object_ptr,
-                name.into(),
-                vec![LIB_DIR.into()],
-            )
+            import_module(state, target_object_ptr, name.into(), vec![LIB_DIR.into()])
         }
     }
 }

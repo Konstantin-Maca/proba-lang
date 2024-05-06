@@ -1,12 +1,12 @@
+use executor::Interrupt;
 use std::env;
 use std::process::exit;
-use executor::Interrupt;
 
-mod parser;
-mod lexer;
 pub mod executor;
-pub mod vmstate;
+mod lexer;
+mod parser;
 pub mod rpmt;
+pub mod vmstate;
 
 #[derive(Debug)]
 struct Config {
