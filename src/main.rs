@@ -7,6 +7,7 @@ mod lexer;
 mod parser;
 pub mod rpmt;
 pub mod vmstate;
+mod probastd;
 
 #[derive(Debug)]
 struct Config {
@@ -72,6 +73,8 @@ fn main() {
     let tokens = parser::parse_file(file_path.into());
     let tree = lexer::lex(tokens);
     let mut state = executor::State::new();
+    probastd::define_standard(&mut state).unwrap();
+
     let result = executor::execute(&mut state, tree);
     if config.debug_state {
         dbg!(state);

@@ -52,7 +52,7 @@ impl PartialEq for Pattern {
 #[derive(Debug, Clone)]
 pub enum Body {
     Do(Node),
-    Rust(fn(State) -> (State, Result<usize, Interrupt>)),
+    Rust(fn(&mut State) -> Result<usize, Interrupt>),
 }
 
 #[derive(Debug, Clone)]

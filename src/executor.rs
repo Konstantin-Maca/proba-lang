@@ -293,9 +293,7 @@ pub fn execute_method(
         let result = match body {
             Body::Do(ref body) => execute(state, body.clone()),
             Body::Rust(body_func) => {
-                let (new_state, result) = body_func(state.clone());
-                state.clone_from(&new_state);
-                result
+                body_func(state)
             }
         };
         match result {
