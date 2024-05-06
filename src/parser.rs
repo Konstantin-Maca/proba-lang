@@ -1,5 +1,6 @@
-use regex::Regex;
 use std::fs;
+
+use regex::Regex;
 
 #[derive(Debug, Clone)]
 pub enum TokenKind {
@@ -32,9 +33,9 @@ pub struct Token {
     pub line: usize,
 }
 
-pub fn parse_file(file_path: String) -> Vec<Token> {
-    let contents = fs::read_to_string(file_path).unwrap();
-    parse_str(&contents)
+pub fn parse_file(file_path: String) -> Result<Vec<Token>, std::io::Error> {
+    let contents = fs::read_to_string(file_path)?;
+    Ok(parse_str(&contents))
 }
 
 pub fn parse_str(string: &str) -> Vec<Token> {

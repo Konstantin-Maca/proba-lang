@@ -227,7 +227,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     )
     .unwrap();
 
-    execute(state, lex(parse_file(LIB_DIR.to_string() + "list.proba"))).unwrap();
+    execute(state, lex(parse_file(LIB_DIR.to_string() + "list.proba").unwrap())).unwrap();
 
     return Ok(0)
 }

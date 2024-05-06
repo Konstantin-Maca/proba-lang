@@ -70,7 +70,13 @@ fn main() {
     } else {
         TEST_FILE_PATH.into()
     };
-    let tokens = parser::parse_file(file_path.into());
+    let tokens = match parser::parse_file(file_path.clone()) {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            println!("Failed to open file `{file_path}'");
+            exit(0)
+        }
+    };
     let tree = lexer::lex(tokens);
     let mut state = executor::State::new();
     probastd::define_standard(&mut state).unwrap();
@@ -82,7 +88,7 @@ fn main() {
     let answer = match result {
         Ok(a) | Err(Interrupt::Exit(a) | Interrupt::Return(a)) => a,
         Err(Interrupt::Error(line, message)) => proba_error(&format!("on line {line}: {message}")),
-        Err(Interrupt::Repeat) => unreachable!(),
+        _ => unreachable!(),
     };
     if config.debug_answer {
         println!("\nProgram returned: {answer}");

@@ -9,6 +9,7 @@ pub enum Interrupt {
     Exit(usize),
     Return(usize),
     Repeat,
+    Err(String),
     Error(usize, String),
 }
 
@@ -414,15 +415,16 @@ pub fn import_module(
     }
     let result = match file_path {
         Some(file_path) => {
-            let tokens = crate::parser::parse_file(file_path);
-            let tree_node = crate::lexer::lex(tokens);
-            execute(state, tree_node)
+            match crate::parser::parse_file(file_path) {
+                Ok(tokens) => {
+                    let tree_node = crate::lexer::lex(tokens);
+                    execute(state, tree_node)
+                }
+                Err(_) => Err(Interrupt::Err(format!("Import error: There is no method with name `{module_name}'."))),
+            }
         }
         None if result.is_some() => result.unwrap(),
-        None => Err(Interrupt::Error(
-            0,
-            format!("Import error: There is no method with name `{module_name}'."),
-        ))?,
+        None => Err(Interrupt::Err(format!("Import error: There is no method with name `{module_name}'."))),
     };
 
     // Restore context stack
