@@ -1,10 +1,6 @@
 use std::ops::Deref;
 
-use crate::{
-    executor::Interrupt,
-    parser::{Token, TokenData},
-    proba_error,
-};
+use crate::parser::{Token, TokenKind};
 
 #[derive(Debug, Clone)]
 pub enum PatternKind {
@@ -14,7 +10,7 @@ pub enum PatternKind {
 }
 
 #[derive(Debug, Clone)]
-pub enum NodeData {
+pub enum NodeKind {
     Here,
     Me,
     Return,
@@ -25,30 +21,31 @@ pub enum NodeData {
     String(String),
     Pattern(PatternKind, Node),
     As(Node, String),
-
     Queue(Vec<Node>),
     QuickContext(Vec<Node>),
     Message(Node, Node),
     Copy(Node),
+    Import(String, Node),
     At(Node, Node),
     Let(String, Node),
     Set(String, Node),
     OnDo(Vec<Node>, Node),
     // NOTE: Maybe useless
-    OnRust(
-        Vec<Node>,
-        fn(&mut crate::executor::State) -> Result<usize, Interrupt>,
-    ),
+    // OnRust(
+    //     Vec<Node>,
+    //     unsafe extern fn(State) -> (State, Result<usize, Interrupt>),
+    // ),
+    // TODO: Add keyword `import` or sth like that.
 }
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    pub data: Box<NodeData>,
+    pub data: Box<NodeKind>,
     pub line: usize,
 }
 
 impl Node {
-    pub fn new(data: NodeData, line: usize) -> Self {
+    pub fn new(data: NodeKind, line: usize) -> Self {
         Self {
             data: Box::new(data),
             line,
@@ -66,16 +63,16 @@ fn lex_queue(tokens: &Vec<Token>, i: &mut usize, line: usize, global: bool) -> N
 
     while *i < tokens.len() {
         match &tokens[*i].data {
-            TokenData::EOQ => {
+            TokenKind::EOQ => {
                 *i += 1;
             }
-            TokenData::As | TokenData::Do => {
+            TokenKind::As | TokenKind::Do => {
                 panic!("Unexpected method definition keyword")
             }
-            TokenData::CloseParen | TokenData::CloseContext if global => {
+            TokenKind::CloseParen | TokenKind::CloseContext if global => {
                 panic!("Unexpected closing paren or brace in global context")
             }
-            TokenData::CloseParen | TokenData::CloseContext => break,
+            TokenKind::CloseParen | TokenKind::CloseContext => break,
             _ => {
                 let node = match lex_message_chain(tokens, i) {
                     Some(n) => n,
@@ -85,22 +82,20 @@ fn lex_queue(tokens: &Vec<Token>, i: &mut usize, line: usize, global: bool) -> N
             }
         }
     }
-    Node::new(NodeData::Queue(queue), line)
+    Node::new(NodeKind::Queue(queue), line)
 }
 
 fn lex_message_chain(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
     let recipient = lex_singleton(tokens, i)?;
     let line = recipient.line;
     let mut message = match lex_singleton(tokens, i) {
-        Some(node) => Node::new(NodeData::Message(recipient, node), line),
+        Some(node) => Node::new(NodeKind::Message(recipient, node), line),
         None => return Some(recipient),
     };
 
     while *i < tokens.len() {
         match lex_singleton(tokens, i) {
-            Some(node) => {
-                message = Node::new(NodeData::Message(message, node), line)
-            }
+            Some(node) => message = Node::new(NodeKind::Message(message, node), line),
             None => break,
         }
     }
@@ -110,120 +105,132 @@ fn lex_message_chain(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
 fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
     let token = tokens.get(*i)?;
     let node = match &token.data {
-        TokenData::EOQ
-        | TokenData::CloseParen
-        | TokenData::CloseContext
-        | TokenData::As
-        | TokenData::Do => None?,
-        TokenData::Here => {
+        TokenKind::EOQ
+        | TokenKind::CloseParen
+        | TokenKind::CloseContext
+        | TokenKind::As
+        | TokenKind::Do => None?,
+        TokenKind::Here => {
             *i += 1;
-            Node::new(NodeData::Here, token.line)
+            Node::new(NodeKind::Here, token.line)
         }
-        TokenData::Me => {
+        TokenKind::Me => {
             *i += 1;
-            Node::new(NodeData::Me, token.line)
+            Node::new(NodeKind::Me, token.line)
         }
-        TokenData::Return => {
+        TokenKind::Return => {
             *i += 1;
-            Node::new(NodeData::Return, token.line)
+            Node::new(NodeKind::Return, token.line)
         }
-        TokenData::Repeat => {
+        TokenKind::Repeat => {
             *i += 1;
-            Node::new(NodeData::Repeat, token.line)
+            Node::new(NodeKind::Repeat, token.line)
         }
-        TokenData::Name(name) => {
+        TokenKind::Name(name) => {
             *i += 1;
             let data = if name == "here" {
-                NodeData::Here
+                NodeKind::Here
             } else {
-                NodeData::Name(name.clone())
+                NodeKind::Name(name.clone())
             };
             Node::new(data, token.line)
         }
-        TokenData::Int(value) => {
+        TokenKind::Int(value) => {
             *i += 1;
-            Node::new(NodeData::Int(*value), token.line)
+            Node::new(NodeKind::Int(*value), token.line)
         }
-        TokenData::Float(value) => {
+        TokenKind::Float(value) => {
             *i += 1;
-            Node::new(NodeData::Float(*value), token.line)
+            Node::new(NodeKind::Float(*value), token.line)
         }
-        TokenData::String(string) => {
+        TokenKind::String(string) => {
             *i += 1;
-            Node::new(NodeData::String(string.clone()), token.line)
+            Node::new(NodeKind::String(string.clone()), token.line)
         }
-        TokenData::OpenParen => {
+        TokenKind::OpenParen => {
             *i += 1;
             let queue = lex_queue(tokens, i, token.line, false);
             match &tokens.get(*i).expect("Paren is never closed").data {
-                TokenData::CloseParen => {
+                TokenKind::CloseParen => {
                     *i += 1;
                     queue
                 }
-                TokenData::CloseContext => panic!("Unexpected closing brace"),
+                TokenKind::CloseContext => panic!("Unexpected closing brace"),
                 t => unreachable!("Unexpected token: {:?}", t),
             }
         }
-        TokenData::OpenContext => {
+        TokenKind::OpenContext => {
             *i += 1;
             let queue = match *lex_queue(tokens, i, token.line, false).data {
-                NodeData::Queue(queue) => queue,
+                NodeKind::Queue(queue) => queue,
                 _ => unreachable!(),
             };
             match &tokens.get(*i).expect("Brace is never closed").data {
-                TokenData::CloseContext => {
+                TokenKind::CloseContext => {
                     *i += 1;
-                    Node::new(NodeData::QuickContext(queue), token.line)
+                    Node::new(NodeKind::QuickContext(queue), token.line)
                 }
-                TokenData::CloseParen => panic!("Unexpected closing paren"),
+                TokenKind::CloseParen => panic!("Unexpected closing paren"),
                 t => unreachable!("Unexpected token: {:?}", t),
             }
         }
-        TokenData::Copy => {
+        TokenKind::Copy => {
             // "copy" SINGLETON EOQ
             *i += 1;
-            let data =
-                NodeData::Copy(lex_singleton(tokens, i).expect("Semicolon after `copy' keyword"));
+            let data = NodeKind::Copy(
+                lex_singleton(tokens, i).expect("End of message after keyword `copy'"),
+            );
             Node::new(data, token.line)
         }
-        TokenData::Let => {
+        TokenKind::Import => {
+            // "import" NAME SINGLETON
+            *i += 1;
+            let node = lex_singleton(tokens, i).expect("End of message after keyword `import'");
+            let name = match *node.data {
+                NodeKind::Name(name) => name,
+                _ => None?,
+            };
+            let node = lex_singleton(tokens, i).expect("End of message after keyword `import'"); // *
+            Node::new(NodeKind::Import(name, node), token.line)
+        }
+        TokenKind::Let => {
             // "let" NAME MESSAGE_CHAIN EOQ
             *i += 1;
             let name = match &tokens[*i].data {
-                TokenData::Name(name) => name,
+                TokenKind::Name(name) => name,
                 _ => panic!("Name is expected after `let' keyword"),
             };
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
-                Some(node) => NodeData::Let(name.clone(), node),
-                None => proba_error("Syntax: Empty let-statement value expression."),
+                Some(node) => NodeKind::Let(name.clone(), node),
+                None => panic!("Proba error: Syntax: Empty let-statement value expression."),
             };
             Node::new(node_data, token.line)
         }
-        TokenData::Set => {
+        TokenKind::Set => {
             // "set" NAME MESSAGE_CHAIN EOQ
             *i += 1;
             let name = match &tokens[*i].data {
-                TokenData::Name(name) => name,
+                TokenKind::Name(name) => name,
                 _ => panic!("Name is expected after `set' keyword"),
             };
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
-                Some(node) => NodeData::Set(name.clone(), node),
-                None => proba_error("Syntax: Empty let-statement value expression."),
+                Some(node) => NodeKind::Set(name.clone(), node),
+                None => panic!("Proba error: Syntax: Empty let-statement value expression."),
             };
             Node::new(node_data, token.line)
         }
-        TokenData::At => {
+        TokenKind::At => {
             // "at" SINGLETON MESSAGE_CHAIN EOQ
             *i += 1;
             let context = lex_singleton(tokens, i).expect("Expecting singleton message");
             match lex_message_chain(tokens, i) {
-                Some(node) => Node::new(NodeData::At(context, node), token.line),
+                Some(node) => Node::new(NodeKind::At(context, node), token.line),
                 None => panic!("Empty context message"), // Node::At(Box::new(context.clone()), Box::new(context)),
             }
         }
-        TokenData::On => {
+        TokenKind::On => {
             // "on" {["="|":"] MESSAGE_CHAIN ["as" NAME] ";"} ("be"|"do") MESSAGE_CHAIN EOQ
             *i += 1;
             // Patterns
@@ -231,32 +238,32 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             while *i < tokens.len() {
                 let token_data = &tokens.get(*i).expect("Unfinished method definition").data;
                 let pattern_kind = match token_data {
-                    TokenData::Name(n) if n.as_str() == ":" => {
+                    TokenKind::Name(n) if n.as_str() == ":" => {
                         // Keyword-pattern
                         *i += 1;
                         let token = tokens.get(*i).expect("Unfinished method definition");
                         match &token.data {
-                            TokenData::Name(name) => {
-                                let data = NodeData::Name(name.clone());
-                                let data = NodeData::Pattern(
+                            TokenKind::Name(name) => {
+                                let data = NodeKind::Name(name.clone());
+                                let data = NodeKind::Pattern(
                                     PatternKind::Keyword,
                                     Node::new(data, token.line),
                                 );
                                 patterns.push(Node::new(data, token.line));
                                 *i += 1;
                                 match &tokens.get(*i).expect("Unfinished method definition").data {
-                                    TokenData::EOQ => {
+                                    TokenKind::EOQ => {
                                         *i += 1;
                                         continue;
                                     }
-                                    TokenData::Do => break,
+                                    TokenKind::Do => break,
                                     t => panic!("Expecting `;', or `do' after a keyword-pattern, got: {t:?}"),
                                 }
                             }
                             _ => panic!("Expecting a name after key-operator `:'"),
                         }
                     }
-                    TokenData::Name(n) if n.as_str() == "=" => {
+                    TokenKind::Name(n) if n.as_str() == "=" => {
                         *i += 1;
                         PatternKind::Equalness
                     }
@@ -265,36 +272,45 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                 let pattern_message = lex_message_chain(tokens, i).expect("Empty pattern message");
                 let node = tokens.get(*i).expect("Unfinished method definition");
                 match node.data {
-                    TokenData::As => {
+                    TokenKind::As => {
                         *i += 1;
                         let token = tokens.get(*i).expect("Unfinished method definition");
-                        let name = if let TokenData::Name(name) = &token.data {
+                        let name = if let TokenKind::Name(name) = &token.data {
                             name.clone()
                         } else {
                             panic!("Expecting a name after token `as'")
                         };
                         *i += 1;
-                        let node_data = NodeData::As(
-                            Node::new(NodeData::Pattern(pattern_kind, pattern_message.clone()), pattern_message.line),
+                        let node_data = NodeKind::As(
+                            Node::new(
+                                NodeKind::Pattern(pattern_kind, pattern_message.clone()),
+                                pattern_message.line,
+                            ),
                             name,
                         );
                         patterns.push(Node::new(node_data, token.line));
                         match tokens.get(*i).expect("Unfinished method definition").data {
-                            TokenData::EOQ => {
+                            TokenKind::EOQ => {
                                 *i += 1;
                                 continue;
                             }
-                            TokenData::Do => break,
+                            TokenKind::Do => break,
                             _ => panic!("Expecting `;' or one of keywords `as' and `do'"),
                         }
                     }
-                    TokenData::EOQ => {
-                        patterns.push(Node::new(NodeData::Pattern(pattern_kind, pattern_message), token.line));
+                    TokenKind::EOQ => {
+                        patterns.push(Node::new(
+                            NodeKind::Pattern(pattern_kind, pattern_message),
+                            token.line,
+                        ));
                         *i += 1;
                         continue;
                     }
-                    TokenData::Do => {
-                        patterns.push(Node::new(NodeData::Pattern(pattern_kind, pattern_message), token.line));
+                    TokenKind::Do => {
+                        patterns.push(Node::new(
+                            NodeKind::Pattern(pattern_kind, pattern_message),
+                            token.line,
+                        ));
                         break;
                     }
                     _ => panic!("Expecting `;' or one of keywords `as' and `do'"),
@@ -309,8 +325,8 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             let body_message =
                 lex_message_chain(tokens, i).expect("Empty body message of method definition");
             let data = match token_data {
-                TokenData::Do => {
-                    expand_method_definition(NodeData::OnDo(patterns, body_message), token.line)
+                TokenKind::Do => {
+                    expand_method_definition(NodeKind::OnDo(patterns, body_message), token.line)
                 }
                 _ => unreachable!(),
             };
@@ -320,9 +336,9 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
     return Some(node);
 }
 
-pub(crate) fn expand_method_definition(node_data: NodeData, line: usize) -> NodeData {
+pub(crate) fn expand_method_definition(node_data: NodeKind, line: usize) -> NodeKind {
     match &node_data {
-        NodeData::OnDo(patterns, body) => {
+        NodeKind::OnDo(patterns, body) => {
             /*  on A as a; B as b do [[something]];
              * =>
              *  on A as a do {
@@ -343,18 +359,21 @@ pub(crate) fn expand_method_definition(node_data: NodeData, line: usize) -> Node
             }
             let mut queue_vec = Vec::new();
             match patterns[0].data.deref() {
-                NodeData::As(_, name) => {
-                    let name_node = Node::new(NodeData::Name(name.into()), line);
-                    queue_vec.push(Node::new(NodeData::Let(name.into(), name_node), line));
+                NodeKind::As(_, name) => {
+                    let name_node = Node::new(NodeKind::Name(name.into()), line);
+                    queue_vec.push(Node::new(NodeKind::Let(name.into(), name_node), line));
                 }
-                NodeData::Pattern(_, _) => (),
+                NodeKind::Pattern(_, _) => (),
                 _ => unreachable!(),
             };
-            let next_definition_node = Node::new(expand_method_definition(NodeData::OnDo(patterns[1..].into(), body.clone()), line), line);
-            let here_node = Node::new(NodeData::Here, line);
+            let next_definition_node = Node::new(
+                expand_method_definition(NodeKind::OnDo(patterns[1..].into(), body.clone()), line),
+                line,
+            );
+            let here_node = Node::new(NodeKind::Here, line);
             queue_vec.append(&mut vec![next_definition_node, here_node]);
-            let subcontext_node = Node::new(NodeData::QuickContext(queue_vec), line);
-            NodeData::OnDo(vec![patterns[0].clone()], subcontext_node)
+            let subcontext_node = Node::new(NodeKind::QuickContext(queue_vec), line);
+            NodeKind::OnDo(vec![patterns[0].clone()], subcontext_node)
         }
         n => panic!("Wrong token type to expand method definition {n:?}"),
     }

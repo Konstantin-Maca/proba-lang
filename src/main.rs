@@ -1,11 +1,12 @@
 use std::env;
 use std::process::exit;
-
 use executor::Interrupt;
 
-mod executor;
-mod lexer;
 mod parser;
+mod lexer;
+pub mod executor;
+pub mod vmstate;
+pub mod rpmt;
 
 #[derive(Debug)]
 struct Config {
@@ -70,7 +71,7 @@ fn main() {
     };
     let tokens = parser::parse_file(file_path.into());
     let tree = lexer::lex(tokens);
-    let mut state = executor::State::standard();
+    let mut state = executor::State::new();
     let result = executor::execute(&mut state, tree);
     if config.debug_state {
         dbg!(state);

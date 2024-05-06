@@ -1,44 +1,33 @@
 use std::ops::Deref;
 
-use crate::lexer::{Node, NodeData, PatternKind};
+use crate::lexer::{Node, NodeKind, PatternKind};
 
-pub(crate) use self::state::State;
-use self::state::{Body, Pattern, Value};
-
-mod standard;
-pub mod state;
-mod fast {
-    pub(crate) fn exec(state: &mut super::State, code: &str) -> Result<usize, super::Interrupt> {
-        let tokens = crate::parser::parse_str(code);
-        let tree = crate::lexer::lex(tokens);
-        super::execute(state, tree)
-    }
-}
+pub(crate) use crate::vmstate::{Body, Pattern, State, Value};
 
 #[derive(Debug)]
 pub enum Interrupt {
     Exit(usize),
-    Return(usize), // TODO: Keyword for it
-    Repeat,        // TODO: Keyword for it
+    Return(usize),
+    Repeat,
     Error(usize, String),
 }
 
+pub const LIB_DIR: &str = "/home/mazza/projects/proba-lang/lib";
+
 pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
     match node.data.deref() {
-        NodeData::Here => Ok(state.here().unwrap()),
-        NodeData::Me => {
-            match state.recipient() {
-                Some(ptr) => Ok(ptr),
-                None => Ok(state.contexts.first().unwrap().0)
-            }
+        NodeKind::Here => Ok(state.here().unwrap()),
+        NodeKind::Me => match state.recipient() {
+            Some(ptr) => Ok(ptr),
+            None => Ok(state.contexts.first().unwrap().0),
         },
-        NodeData::Return => Err(Interrupt::Return(state.recipient().unwrap())),
-        NodeData::Repeat => Err(Interrupt::Repeat),
-        NodeData::Message(rec_node, msg_node) => {
+        NodeKind::Return => Err(Interrupt::Return(state.recipient().unwrap())),
+        NodeKind::Repeat => Err(Interrupt::Repeat),
+        NodeKind::Message(rec_node, msg_node) => {
             // Execute recipient
             let recipient = execute(state, rec_node.clone())?;
             let message = match msg_node.data.deref() {
-                NodeData::Name(ref name) => {
+                NodeKind::Name(ref name) => {
                     let some_method = state.get_method(recipient, name.clone());
                     if let Some((_, _, body)) = some_method {
                         // Try call method of the recipient-object
@@ -53,7 +42,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 }
                 _ => execute(state, msg_node.clone())?,
             };
-            let method = match state.match_method(recipient, message) {
+            let method = match match_method(state, recipient, message) {
                 Some(method) => method,
                 None => Err(Interrupt::Error(
                     node.line,
@@ -64,24 +53,25 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             };
             let name = match method.1 {
                 Pattern::Kw(_) => unreachable!(),
-                Pattern::Eq(_) => "".into(),
-                Pattern::EqA(_, name) => name.clone(),
-                Pattern::Pt(_) => "".into(),
-                Pattern::PtA(_, name) => name.clone(),
+                Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
             };
             execute_method(state, recipient, method.2, (name, message))
         }
-        NodeData::Name(name) => {
+        NodeKind::Name(name) => {
             let some_method = state.get_method_ctx(name.clone());
-            let context = state.contexts.last().unwrap().0;
+            let context = match state.contexts.last() {
+                Some(c) => c.0,
+                None => Err(Interrupt::Error(
+                    node.line,
+                    format!("There is no field or key-method named `{name}'"),
+                ))?,
+            };
             if let Some((_, pattern, body)) = some_method {
                 // Try call method of the context-object
                 let name = match pattern {
-                    Pattern::Kw(_) => "".into(),
-                    Pattern::Eq(_) => "".into(),
-                    Pattern::EqA(_, name) => name.clone(),
-                    Pattern::Pt(_) => "".into(),
-                    Pattern::PtA(_, name) => name.clone(),
+                    Pattern::Kw(_) | Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                    Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                 };
                 execute_method(state, context, body.clone(), (name, context))
             } else if let Some(value) = state.get_field_ctx(name.into()) {
@@ -97,19 +87,19 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 ))?
             }
         }
-        NodeData::Int(value) => {
+        NodeKind::Int(value) => {
             let ptr = state
                 .copy(state.get_field(1, "Int".into()).unwrap().unwrap_ptr())
                 .unwrap();
             state.let_field(ptr, "value".into(), Value::Int(*value));
             Ok(ptr)
         }
-        NodeData::Float(_) => todo!("Create float object"),
-        NodeData::String(_) => todo!("Create string object"),
-        NodeData::Pattern(..) => unreachable!(),
-        NodeData::As(..) => unreachable!(),
-        NodeData::Queue(queue) => execute_queue(state, &queue, node.line),
-        NodeData::QuickContext(queue) => {
+        NodeKind::Float(_) => todo!("Create float object"),
+        NodeKind::String(_) => todo!("Create string object"),
+        NodeKind::Pattern(..) => unreachable!(),
+        NodeKind::As(..) => unreachable!(),
+        NodeKind::Queue(queue) => execute_queue(state, &queue, node.line),
+        NodeKind::QuickContext(queue) => {
             let context = state.contexts.last().unwrap().0;
             let sub_context = state.copy(context).unwrap();
             state.contexts.push((sub_context, false));
@@ -118,7 +108,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             state.clear_garbage(if let Ok(p) = result { vec![p] } else { vec![] });
             result
         }
-        NodeData::Copy(node) => {
+        NodeKind::Copy(node) => {
             let ptr = execute(state, node.clone())?;
             match state.copy(ptr) {
                 Some(p) => Ok(p),
@@ -128,7 +118,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 )),
             }
         }
-        NodeData::At(context_node, body_node) => {
+        NodeKind::At(context_node, body_node) => {
             let context_ptr = execute(state, context_node.clone())?;
             state.contexts.push((context_ptr, false));
             let result = execute(state, body_node.clone());
@@ -136,7 +126,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             state.clear_garbage(if let Ok(p) = result { vec![p] } else { vec![] });
             result
         }
-        NodeData::Let(name, value_node) => {
+        NodeKind::Let(name, value_node) => {
             // You can let new field or re-let existing one in a context-object,
             // only if you entered into it from another context,
             // that is a copy of the current context-object's creation context.
@@ -165,7 +155,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 None => Err(Interrupt::Error(node.line, "Unexpected error".into())),
             }
         }
-        NodeData::Set(name, value_node) => {
+        NodeKind::Set(name, value_node) => {
             // You can set existing field in a context-object,
             // only if you entered into it from another context,
             // that is a copy of the current context-object's creation context.
@@ -195,29 +185,29 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 )),
             }
         }
-        NodeData::OnDo(patterns, body) => {
+        NodeKind::OnDo(patterns, body) => {
             if patterns.len() != 1 {
                 unreachable!()
             }
             let pattern = match patterns[0].data.deref() {
-                NodeData::Pattern(PatternKind::Keyword, name_node) => {
+                NodeKind::Pattern(PatternKind::Keyword, name_node) => {
                     let name = match name_node.data.deref() {
-                        NodeData::Name(name) => name,
+                        NodeKind::Name(name) => name,
                         _ => unreachable!(),
                     };
                     Pattern::Kw(name.clone())
                 }
-                NodeData::Pattern(PatternKind::Prototype, node) => {
+                NodeKind::Pattern(PatternKind::Prototype, node) => {
                     Pattern::Pt(execute(state, node.clone())?)
                 }
-                NodeData::Pattern(PatternKind::Equalness, node) => {
+                NodeKind::Pattern(PatternKind::Equalness, node) => {
                     Pattern::Eq(execute(state, node.clone())?)
                 }
-                NodeData::As(pattern_node, alias) => match pattern_node.data.deref() {
-                    NodeData::Pattern(PatternKind::Prototype, node) => {
+                NodeKind::As(pattern_node, alias) => match pattern_node.data.deref() {
+                    NodeKind::Pattern(PatternKind::Prototype, node) => {
                         Pattern::PtA(execute(state, node.clone())?, alias.clone())
                     }
-                    NodeData::Pattern(PatternKind::Equalness, node) => {
+                    NodeKind::Pattern(PatternKind::Equalness, node) => {
                         Pattern::EqA(execute(state, node.clone())?, alias.clone())
                     }
                     _ => unreachable!(),
@@ -231,41 +221,52 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             );
             Ok(state.contexts.last().unwrap().0)
         }
-        NodeData::OnRust(patterns, body_func) => {
-            if patterns.len() != 1 {
-                unreachable!()
-            }
-            let pattern = match patterns[0].data.deref() {
-                NodeData::Pattern(PatternKind::Keyword, name_node) => {
-                    let name = match name_node.data.deref() {
-                        NodeData::Name(name) => name,
-                        _ => unreachable!(),
-                    };
-                    Pattern::Kw(name.clone())
-                }
-                NodeData::Pattern(PatternKind::Prototype, node) => {
-                    Pattern::Pt(execute(state, node.clone())?)
-                }
-                NodeData::Pattern(PatternKind::Equalness, node) => {
-                    Pattern::Eq(execute(state, node.clone())?)
-                }
-                NodeData::As(pattern_node, alias) => match pattern_node.data.deref() {
-                    NodeData::Pattern(PatternKind::Prototype, node) => {
-                        Pattern::PtA(execute(state, node.clone())?, alias.clone())
-                    }
-                    NodeData::Pattern(PatternKind::Equalness, node) => {
-                        Pattern::EqA(execute(state, node.clone())?, alias.clone())
-                    }
-                    _ => unreachable!(),
-                },
-                _ => unreachable!(),
-            };
-            state.define_method(
-                state.contexts.last().unwrap().0,
-                pattern,
-                Body::Rust(*body_func),
-            );
-            Ok(state.contexts.last().unwrap().0)
+        // NOTE: Maybe useless
+        // NodeKind::OnRust(patterns, body_func) => {
+        //     if patterns.len() != 1 {
+        //         unreachable!()
+        //     }
+        //     let pattern = match patterns[0].data.deref() {
+        //         NodeKind::Pattern(PatternKind::Keyword, name_node) => {
+        //             let name = match name_node.data.deref() {
+        //                 NodeKind::Name(name) => name,
+        //                 _ => unreachable!(),
+        //             };
+        //             Pattern::Kw(name.clone())
+        //         }
+        //         NodeKind::Pattern(PatternKind::Prototype, node) => {
+        //             Pattern::Pt(execute(state, node.clone())?)
+        //         }
+        //         NodeKind::Pattern(PatternKind::Equalness, node) => {
+        //             Pattern::Eq(execute(state, node.clone())?)
+        //         }
+        //         NodeKind::As(pattern_node, alias) => match pattern_node.data.deref() {
+        //             NodeKind::Pattern(PatternKind::Prototype, node) => {
+        //                 Pattern::PtA(execute(state, node.clone())?, alias.clone())
+        //             }
+        //             NodeKind::Pattern(PatternKind::Equalness, node) => {
+        //                 Pattern::EqA(execute(state, node.clone())?, alias.clone())
+        //             }
+        //             _ => unreachable!(),
+        //         },
+        //         _ => unreachable!(),
+        //     };
+        //     state.define_method(
+        //         state.contexts.last().unwrap().0,
+        //         pattern,
+        //         Body::Rust(*body_func),
+        //     );
+        //     Ok(state.contexts.last().unwrap().0)
+        // }
+        NodeKind::Import(name, node) => {
+            // TODO: Put here dir of the executed file
+            let target_object_ptr = execute(state, node.clone())?;
+            import_module(
+                state,
+                target_object_ptr,
+                name.into(),
+                vec![LIB_DIR.into()],
+            )
         }
     }
 }
@@ -284,7 +285,7 @@ fn execute_queue(state: &mut State, queue: &Vec<Node>, line: usize) -> Result<us
     Ok(result)
 }
 
-fn execute_method(
+pub fn execute_method(
     state: &mut State,
     owner_ptr: usize,
     body: Body,
@@ -294,9 +295,13 @@ fn execute_method(
     state.contexts.push((context, true));
     state.let_field(context, arg.0, Value::Pointer(arg.1));
     let result = loop {
-        let result = match &body {
-            Body::Do(body) => execute(state, body.clone()),
-            Body::Rust(body_func) => body_func(state),
+        let result = match body {
+            Body::Do(ref body) => execute(state, body.clone()),
+            Body::Rust(body_func) => {
+                let (new_state, result) = body_func(state.clone());
+                state.clone_from(&new_state);
+                result
+            }
         };
         match result {
             Ok(ptr) => break Ok(ptr),
@@ -306,5 +311,129 @@ fn execute_method(
         }
     };
     state.contexts.pop().unwrap();
+    result
+}
+
+pub fn match_method(
+    state: &mut State,
+    ptr: usize,
+    message: usize,
+) -> Option<(usize, Pattern, Body)> {
+    for (owner_ptr, pattern, body) in state.methods.clone().iter() {
+        match pattern {
+            Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
+                if *owner_ptr == ptr && {
+                    // pattern_ptr == message
+                    let method = state.get_method(*pattern_ptr, "==".into()).unwrap();
+                    let ptr = execute_method(state, *pattern_ptr, method.2.clone(), ("".into(), 0))
+                        .unwrap();
+
+                    let method = match_method(state, ptr, message).unwrap();
+                    let arg_name = match &method.1 {
+                        Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                        Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
+                        _ => unreachable!(),
+                    };
+                    let result_ptr =
+                        execute_method(state, ptr, method.2.clone(), (arg_name, message));
+
+                    result_ptr.unwrap() == state.get_field(1, "True".into()).unwrap().unwrap_ptr()
+                } =>
+            {
+                return Some((*owner_ptr, pattern.clone(), body.clone()));
+            }
+            Pattern::Pt(pattern_ptr) | Pattern::PtA(pattern_ptr, ..)
+                if *owner_ptr == ptr && state.relation(message, pattern_ptr.clone()).is_some() =>
+            {
+                return Some((*owner_ptr, pattern.clone(), body.clone()))
+            }
+            _ => continue,
+        }
+    }
+    match ptr {
+        0 => None,
+        _ => match_method(state, state.parent(ptr)?, message),
+    }
+}
+
+pub fn import_module(
+    state: &mut State,
+    target_object_ptr: usize,
+    module_name: String,
+    dirs: Vec<String>,
+) -> Result<usize, Interrupt> {
+    // Save context stack
+    let ctx_save = state.contexts.clone();
+    state.contexts = vec![(target_object_ptr, false)];
+
+    // TODO once: Try to find rusty module
+    // let mut lib_filename = None;
+    // for d in &dirs {
+    //     let fp = format!("{d}/lib{module_name}.so");
+    //     if std::path::Path::new(&fp).is_file() {
+    //         lib_filename = Some(fp);
+    //         break;
+    //     }
+    //     let fp = format!("{d}/{module_name}/target/debug/lib{module_name}.so");
+    //     if std::path::Path::new(&fp).is_file() {
+    //         lib_filename = Some(fp);
+    //         break;
+    //     }
+    // }
+    // let result = match lib_filename {
+    //     None => None,
+    //     Some(lib_filename) => {
+    //         // Load the dylib
+    //         unsafe {
+    //             let lib = libloading::Library::new(lib_filename.clone());
+    //             let lib = match lib {
+    //                 Ok(lib) => lib,
+    //                 Err(_) => {
+    //                     Err(Interrupt::Error(0, format!("Import error: Failed to import existing rust-written module `{module_name}' ({lib_filename}).")))?
+    //                 }
+    //             };
+    //             let module_main = lib.get(b"main");
+    //             let module_main: libloading::Symbol<unsafe extern fn(State) -> (State, Result<usize, Interrupt>)> =
+    //                 match module_main {
+    //                     Ok(module_main) => module_main,
+    //                     Err(_) => {
+    //                         Err(Interrupt::Error(0, format!("Import error: Failed to import existing rust-written module `{module_name}' ({lib_filename}).")))?
+    //                     }
+    //                 };
+    //             // dbg!(&state);
+    //             let (new_state, result) = module_main(state.clone());
+    //             state.clone_from(&new_state);
+    //             // dbg!(&state);
+    //             Some(result)
+    //         }
+    //     }
+    // };
+    let result = None;
+
+    // Try to find Proba-module
+    let mut file_path = None;
+    for d in &dirs {
+        let fp = format!("{d}/{module_name}.proba");
+        if std::path::Path::new(&fp).is_file() {
+            file_path = Some(fp);
+            break;
+        }
+    }
+    let result = match file_path {
+        Some(file_path) => {
+            let tokens = crate::parser::parse_file(file_path);
+            let tree_node = crate::lexer::lex(tokens);
+            execute(state, tree_node)
+        }
+        None if result.is_some() => result.unwrap(),
+        None => Err(Interrupt::Error(
+            0,
+            format!("Import error: There is no method with name `{module_name}'."),
+        ))?,
+    };
+
+    // Restore context stack
+    state.contexts = ctx_save;
+
     result
 }

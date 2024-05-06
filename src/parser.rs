@@ -2,7 +2,7 @@ use regex::Regex;
 use std::fs;
 
 #[derive(Debug, Clone)]
-pub enum TokenData {
+pub enum TokenKind {
     Name(String),
     Int(isize),
     Float(f64),
@@ -23,11 +23,12 @@ pub enum TokenData {
     As,
     Return, // NOTE: I've just realized, that it may be useless
     Repeat,
+    Import,
 }
 
 #[derive(Debug, Clone)]
 pub struct Token {
-    pub data: TokenData,
+    pub data: TokenKind,
     pub line: usize,
 }
 
@@ -46,22 +47,23 @@ pub fn parse_str(string: &str) -> Vec<Token> {
     let mut line_count = 0usize;
     for cap in token_re.captures_iter(&string) {
         let token = match &cap[0] {
-            "(" => TokenData::OpenParen,
-            ")" => TokenData::CloseParen,
-            "{" => TokenData::OpenContext,
-            "}" => TokenData::CloseContext,
-            ";" => TokenData::EOQ,
-            "here" => TokenData::Here,
-            "me" => TokenData::Me,
-            "copy" => TokenData::Copy,
-            "at" => TokenData::At,
-            "let" => TokenData::Let,
-            "set" => TokenData::Set,
-            "on" => TokenData::On,
-            "do" => TokenData::Do,
-            "as" => TokenData::As,
-            "return" => TokenData::Return,
-            "repeat" => TokenData::Repeat,
+            "(" => TokenKind::OpenParen,
+            ")" => TokenKind::CloseParen,
+            "{" => TokenKind::OpenContext,
+            "}" => TokenKind::CloseContext,
+            ";" => TokenKind::EOQ,
+            "here" => TokenKind::Here,
+            "me" => TokenKind::Me,
+            "copy" => TokenKind::Copy,
+            "at" => TokenKind::At,
+            "let" => TokenKind::Let,
+            "set" => TokenKind::Set,
+            "on" => TokenKind::On,
+            "do" => TokenKind::Do,
+            "as" => TokenKind::As,
+            "return" => TokenKind::Return,
+            "repeat" => TokenKind::Repeat,
+            "import" => TokenKind::Import,
             s => {
                 for c in s.chars() {
                     if c == '\n' {
@@ -72,13 +74,13 @@ pub fn parse_str(string: &str) -> Vec<Token> {
                 if s.trim().is_empty() || comment_re.is_match(s) {
                     continue;
                 } else if string_re.is_match(s) {
-                    TokenData::String(s[1..s.len() - 1].into())
+                    TokenKind::String(s[1..s.len() - 1].into())
                 } else if let Ok(i) = s.parse::<isize>() {
-                    TokenData::Int(i)
+                    TokenKind::Int(i)
                 } else if let Ok(f) = s.parse::<f64>() {
-                    TokenData::Float(f)
+                    TokenKind::Float(f)
                 } else {
-                    TokenData::Name(s.into())
+                    TokenKind::Name(s.into())
                 }
             }
         };

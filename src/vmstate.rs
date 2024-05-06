@@ -1,9 +1,8 @@
+use crate::executor::Interrupt;
 use crate::lexer::Node;
 
-use super::{execute_method, standard::prepare_std, Interrupt};
-
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Value {
+pub enum Value {
     Pointer(usize),
     Int(isize),
     Float(f64),
@@ -31,7 +30,7 @@ impl Value {
 }
 
 #[derive(Debug, Clone, Eq, Hash)]
-pub(super) enum Pattern {
+pub enum Pattern {
     Kw(String),
     Eq(usize),
     EqA(usize, String),
@@ -51,19 +50,19 @@ impl PartialEq for Pattern {
 }
 
 #[derive(Debug, Clone)]
-pub(super) enum Body {
+pub enum Body {
     Do(Node),
-    Rust(fn(&mut State) -> Result<usize, Interrupt>),
+    Rust(fn(State) -> (State, Result<usize, Interrupt>)),
 }
 
-#[derive(Debug)]
-pub(crate) struct State {
-    pub(super) op_count: usize,
-    pub(super) contexts: Vec<(usize, bool)>, // Context (pointer, is pushed for method?)
+#[derive(Debug, Clone)]
+pub struct State {
+    pub op_count: usize,
+    pub contexts: Vec<(usize, bool)>, // Context (ptr, is pushed for method?)
 
-    pub(crate) objects: Vec<(usize, usize, usize)>, // (ptr, parent_ptr, cotnext_ptr)
-    pub(super) fields: Vec<(usize, String, Value)>, // (owner_ptr, name, ptr|int|float)
-    pub(super) methods: Vec<(usize, Pattern, Body)>, // (owner_ptr, pattern, body)
+    pub objects: Vec<(usize, usize, usize)>, // (ptr, parent_ptr, cotnext_ptr)
+    pub fields: Vec<(usize, String, Value)>, // (owner_ptr, name, ptr|int|float)
+    pub methods: Vec<(usize, Pattern, Body)>, // (owner_ptr, pattern, body)
 }
 
 impl State {
@@ -76,10 +75,13 @@ impl State {
             methods: Vec::new(),
         }
     }
-    pub fn standard() -> Self {
-        let mut state = Self::new();
-        prepare_std(&mut state);
-        state
+
+    pub fn clone_from(&mut self, other: &Self) {
+        self.op_count = other.op_count;
+        self.contexts = other.contexts.clone();
+        self.objects = other.objects.clone();
+        self.fields = other.fields.clone();
+        self.methods = other.methods.clone();
     }
 
     pub fn here(&self) -> Option<usize> {
@@ -94,7 +96,7 @@ impl State {
         }
         None
     }
-    pub(super) fn copy(&mut self, ptr: usize) -> Option<usize> {
+    pub fn copy(&mut self, ptr: usize) -> Option<usize> {
         self.objects.iter().find(|obj| obj.0 == ptr)?;
         let new_ptr = self.op_count;
         self.op_count += 1;
@@ -186,7 +188,7 @@ impl State {
 
     /// Return true, if method is re-defined;
     /// return false, if new method is defined.
-    pub(super) fn define_method(&mut self, ptr: usize, pattern: Pattern, body: Body) -> bool {
+    pub fn define_method(&mut self, ptr: usize, pattern: Pattern, body: Body) -> bool {
         // Check if same method is already defined
         let some_method_pos = self
             .methods
@@ -202,11 +204,7 @@ impl State {
         redefined
     }
     /// Use when message is a name (word (keyword)).
-    pub(super) fn get_method(
-        &self,
-        ptr: usize,
-        keyword: String,
-    ) -> Option<&(usize, Pattern, Body)> {
+    pub fn get_method(&self, ptr: usize, keyword: String) -> Option<&(usize, Pattern, Body)> {
         match self
             .methods
             .iter()
@@ -224,7 +222,7 @@ impl State {
         }
     }
     /// Use when message is a name (word (keyword)).
-    pub(super) fn get_method_ctx(&self, keyword: String) -> Option<&(usize, Pattern, Body)> {
+    pub fn get_method_ctx(&self, keyword: String) -> Option<&(usize, Pattern, Body)> {
         for &(ptr, is_for_method) in self.contexts.iter().rev() {
             match self.get_method(ptr, keyword.clone()) {
                 Some(method) => return Some(method),
@@ -234,53 +232,7 @@ impl State {
                 break;
             }
         }
-        self.get_method(self.contexts[0].0, keyword)
-    }
-    /// Use when message is an object.pub(super) fn match_method(
-    pub(super) fn match_method(
-        &mut self,
-        ptr: usize,
-        message: usize,
-    ) -> Option<(usize, Pattern, Body)> {
-        for (owner_ptr, pattern, body) in self.methods.clone().iter() {
-            match pattern {
-                Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
-                    if *owner_ptr == ptr && {
-                        // pattern_ptr == message
-                        let method = self.get_method(*pattern_ptr, "==".into()).unwrap();
-                        let ptr =
-                            execute_method(self, *pattern_ptr, method.2.clone(), ("".into(), 0))
-                                .unwrap();
-
-                        let method = self.match_method(ptr, message).unwrap();
-                        let arg_name = match &method.1 {
-                            Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
-                            Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
-                            _ => unreachable!(),
-                        };
-                        let result_ptr =
-                            execute_method(self, ptr, method.2.clone(), (arg_name, message));
-
-                        result_ptr.unwrap()
-                            == self.get_field(1, "True".into()).unwrap().unwrap_ptr()
-                    } =>
-                {
-                    return Some((*owner_ptr, pattern.clone(), body.clone()));
-                }
-                Pattern::Pt(pattern_ptr) | Pattern::PtA(pattern_ptr, ..)
-                    if *owner_ptr == ptr && self.relation(message, *pattern_ptr).is_some() =>
-                {
-                    return Some((*owner_ptr, pattern.clone(), body.clone()));
-                }
-                _ => continue,
-            }
-        }
-        if ptr == 0 {
-            None?
-        } else {
-            let parent_ptr = self.objects.iter().find(|obj| obj.0 == ptr)?.1;
-            self.match_method(parent_ptr, message)
-        }
+        self.get_method(self.contexts.first()?.0, keyword)
     }
 
     fn count_links(&self, ptr: usize) -> usize {
@@ -311,8 +263,7 @@ impl State {
 
         count
     }
-
-    pub(super) fn clear_garbage(&mut self, white_list: Vec<usize>) {
+    pub(crate) fn clear_garbage(&mut self, white_list: Vec<usize>) {
         let mut run = true;
         while run {
             run = false;
