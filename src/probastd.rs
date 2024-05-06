@@ -16,7 +16,6 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
         0,
         Pattern::Kw("exit".into()),
         Body::Rust(|state| {
-            println!("EXITING...");
             Err(Interrupt::Exit(state.recipient().unwrap()))
         }),
     );
@@ -33,7 +32,6 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
         0,
         Pattern::Kw("println".into()),
         Body::Rust(|state| {
-            println!("HUH?");
             let ptr = state.recipient().unwrap();
             println!("[[Object#{ptr}]]");
             Ok(ptr)
@@ -227,7 +225,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     )
     .unwrap();
 
-    execute(state, lex(parse_file(LIB_DIR.to_string() + "list.proba").unwrap())).unwrap();
+    execute(state, lex(parse_file(LIB_DIR.to_string() + "/list.proba").unwrap())).unwrap();
 
     return Ok(0)
 }
