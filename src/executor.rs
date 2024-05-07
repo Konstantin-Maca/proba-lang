@@ -13,7 +13,7 @@ pub enum Interrupt {
     Error(usize, String),
 }
 
-pub const LIB_DIR: &str = "/home/mazza/projects/proba-lang/lib";
+pub const LIB_DIR: &str = "/home/mazza/dev/proba-lang/lib"; // CHAGE THIS CONSTANT TO WHERE YOU WANT TO STORE LIBS
 
 pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
     match node.data.deref() {
@@ -161,10 +161,18 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             // only if you entered into it from another context,
             // that is a copy of the current context-object's creation context.
             // Exception: the global context.
-            let super_context = state.contexts[state.contexts.len() - 2].0;
+            let super_context = if state.contexts.len() >= 2 {
+                Some(state.contexts.get(state.contexts.len() - 2).unwrap().0)
+            } else {
+                None
+            };
             let here = state.here().unwrap();
             let heres_context = state.objects.iter().find(|obj| obj.0 == here).unwrap().2;
-            if state.here().unwrap() != 1 && !state.relation(super_context, heres_context).is_some()
+            if state.here().unwrap() != 1
+                && super_context.is_some()
+                && !state
+                    .relation(super_context.unwrap(), heres_context)
+                    .is_some()
             {
                 Err(Interrupt::Error(
                     node.line,
@@ -293,9 +301,7 @@ pub fn execute_method(
     let result = loop {
         let result = match body {
             Body::Do(ref body) => execute(state, body.clone()),
-            Body::Rust(body_func) => {
-                body_func(state)
-            }
+            Body::Rust(body_func) => body_func(state),
         };
         match result {
             Ok(ptr) => break Ok(ptr),
@@ -414,17 +420,19 @@ pub fn import_module(
         }
     }
     let result = match file_path {
-        Some(file_path) => {
-            match crate::parser::parse_file(file_path) {
-                Ok(tokens) => {
-                    let tree_node = crate::lexer::lex(tokens);
-                    execute(state, tree_node)
-                }
-                Err(_) => Err(Interrupt::Err(format!("Import error: There is no method with name `{module_name}'."))),
+        Some(file_path) => match crate::parser::parse_file(file_path) {
+            Ok(tokens) => {
+                let tree_node = crate::lexer::lex(tokens);
+                execute(state, tree_node)
             }
-        }
+            Err(_) => Err(Interrupt::Err(format!(
+                "Import error: There is no method with name `{module_name}'."
+            ))),
+        },
         None if result.is_some() => result.unwrap(),
-        None => Err(Interrupt::Err(format!("Import error: There is no method with name `{module_name}'."))),
+        None => Err(Interrupt::Err(format!(
+            "Import error: There is no method with name `{module_name}'."
+        ))),
     };
 
     // Restore context stack

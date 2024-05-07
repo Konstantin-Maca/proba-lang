@@ -322,8 +322,13 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                 panic!("Empty pattern in method definition")
             }
             // Body
-            let body_message =
-                lex_message_chain(tokens, i).expect("Empty body message of method definition");
+            let body_message = lex_message_chain(tokens, i).expect(
+                format!(
+                    "Syntax error: on line {}: Empty body message of method definition",
+                    token.line
+                )
+                .as_str(),
+            );
             let data = match token_data {
                 TokenKind::Do => {
                     expand_method_definition(NodeKind::OnDo(patterns, body_message), token.line)

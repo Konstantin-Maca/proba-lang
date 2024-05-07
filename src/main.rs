@@ -5,9 +5,9 @@ use std::process::exit;
 pub mod executor;
 mod lexer;
 mod parser;
+mod probastd;
 pub mod rpmt;
 pub mod vmstate;
-mod probastd;
 
 #[derive(Debug)]
 struct Config {
