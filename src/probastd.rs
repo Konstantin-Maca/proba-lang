@@ -57,21 +57,21 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                 Ok(state.recipient().unwrap())
             }),
         );
+        state.define_method(
+            true_ptr,
+            Pattern::Kw("println".into()),
+            Body::Rust(|state| {
+                println!("[[True]]");
+                Ok(state.recipient().unwrap())
+            }),
+        );
+
         let false_ptr = state.get_field(1, "False".into()).unwrap().unwrap_ptr();
         state.define_method(
             false_ptr,
             Pattern::Kw("print".into()),
             Body::Rust(|state| {
                 print!("[[False]]");
-                Ok(state.recipient().unwrap())
-            }),
-        );
-
-        state.define_method(
-            true_ptr,
-            Pattern::Kw("println".into()),
-            Body::Rust(|state| {
-                println!("[[True]]");
                 Ok(state.recipient().unwrap())
             }),
         );
@@ -227,12 +227,30 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     exec(
         state,
         "
-        at (let None copy Object) on : none? do True;
+        let None at copy Object ( on : none? do True; );
         at Object on : none? do False;
         ",
     )
     .unwrap();
-    // TODO: Add print(ln) methods
+    {
+        let none_ptr = state.get_field(1, "None".into()).unwrap().unwrap_ptr();
+        state.define_method(
+            none_ptr,
+            Pattern::Kw("print".into()),
+            Body::Rust(|state| {
+                print!("");
+                Ok(state.recipient().unwrap())
+            }),
+        );
+        state.define_method(
+            none_ptr,
+            Pattern::Kw("println".into()),
+            Body::Rust(|state| {
+                println!("");
+                Ok(state.recipient().unwrap())
+            }),
+        );
+    }
 
     execute(
         state,
