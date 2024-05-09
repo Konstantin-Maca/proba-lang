@@ -10,8 +10,7 @@ at my_object
 
 [ Define keyword-method ]
 let counter 0 println;
-on : count do
-  set counter counter ++;
+on : count do counter ++;
 count;
 counter println; [ -> 1 ]
 count; count;

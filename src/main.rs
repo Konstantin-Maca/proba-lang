@@ -11,14 +11,14 @@ pub mod vmstate;
 
 #[derive(Debug)]
 struct Config {
-    file_path: Option<String>,
-    args: Vec<String>,
-    debug_state: bool,
-    debug_answer: bool,
+    pub file_path: Option<String>,
+    pub args: Vec<String>,
+    pub debug_state: bool,
+    pub debug_answer: bool,
 }
 
 impl Config {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             file_path: Some(String::new()),
             args: Vec::new(),
@@ -28,8 +28,7 @@ impl Config {
     }
 }
 
-fn parse_args() -> Config {
-    let mut config = Config::new();
+fn parse_args(config: &mut Config) {
     let mut args = env::args().collect::<Vec<String>>();
     args.remove(0);
 
@@ -52,8 +51,6 @@ fn parse_args() -> Config {
         config.file_path = Some(args.remove(0));
     }
     config.args = args;
-
-    config
 }
 
 fn proba_error(message: &str) -> ! {
@@ -61,11 +58,13 @@ fn proba_error(message: &str) -> ! {
     exit(0)
 }
 
+pub(crate) static mut PROG_CONFIG: Config = Config::new();
+
 fn main() {
     const TEST_FILE_PATH: &str = "test.proba";
-    let config = parse_args();
+    parse_args(unsafe { &mut PROG_CONFIG });
 
-    let file_path = if let Some(fp) = config.file_path {
+    let file_path = if let Some(fp) = unsafe { PROG_CONFIG.file_path.clone() } {
         fp
     } else {
         TEST_FILE_PATH.into()
@@ -78,11 +77,11 @@ fn main() {
         }
     };
     let tree = lexer::lex(tokens);
-    let mut state = executor::State::new();
+    let mut state = vmstate::State::new();
     probastd::define_standard(&mut state).unwrap();
 
     let result = executor::execute(&mut state, tree);
-    if config.debug_state {
+    if unsafe { PROG_CONFIG.debug_state } {
         dbg!(state);
     }
     let answer = match result {
@@ -90,7 +89,7 @@ fn main() {
         Err(Interrupt::Error(line, message)) => proba_error(&format!("on line {line}: {message}")),
         _ => unreachable!(),
     };
-    if config.debug_answer {
+    if unsafe { PROG_CONFIG.debug_answer } {
         println!("\nProgram returned: {answer}");
     }
 }

@@ -1,8 +1,8 @@
-use std::ops::Deref;
-
 use crate::lexer::{Node, NodeKind, PatternKind};
-
-pub(crate) use crate::vmstate::{Body, Pattern, State, Value};
+use crate::vmstate::{Body, Pattern, State, Value};
+use crate::PROG_CONFIG;
+use std::ops::Deref;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Interrupt {
@@ -270,7 +270,20 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         NodeKind::Import(name, node) => {
             // TODO: Put here dir of the executed file
             let target_object_ptr = execute(state, node.clone())?;
-            import_module(state, target_object_ptr, name.into(), vec![LIB_DIR.into()])
+            import_module(
+                state,
+                target_object_ptr,
+                name.into(),
+                vec![
+                    LIB_DIR.into(),
+                    PathBuf::from(unsafe { &PROG_CONFIG }.file_path.clone().unwrap())
+                        .parent()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .into(),
+                ],
+            )
         }
     }
 }
