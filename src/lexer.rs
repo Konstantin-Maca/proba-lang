@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, process::exit};
 
 use crate::parser::{Token, TokenKind};
 
@@ -67,10 +67,13 @@ fn lex_queue(tokens: &Vec<Token>, i: &mut usize, line: usize, global: bool) -> N
                 *i += 1;
             }
             TokenKind::As | TokenKind::Do => {
-                panic!("Unexpected method definition keyword")
+                syntax_error(line, "Unexpected method definition keyword.".into());
             }
             TokenKind::CloseParen | TokenKind::CloseContext if global => {
-                panic!("Unexpected closing paren or brace in global context")
+                syntax_error(
+                    line,
+                    "Unexpected closing paren or brace in global context.".into(),
+                );
             }
             TokenKind::CloseParen | TokenKind::CloseContext => break,
             _ => {
@@ -150,12 +153,18 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
         TokenKind::OpenParen => {
             *i += 1;
             let queue = lex_queue(tokens, i, token.line, false);
-            match &tokens.get(*i).expect("Paren is never closed").data {
+            let t = match tokens.get(*i) {
+                Some(t) => &t.data,
+                None => syntax_error(token.line, "Paren is never closed".into()),
+            };
+            match t {
                 TokenKind::CloseParen => {
                     *i += 1;
                     queue
                 }
-                TokenKind::CloseContext => panic!("Unexpected closing brace"),
+                TokenKind::CloseContext => {
+                    syntax_error(token.line, "Unexpected closing brace".into())
+                }
                 t => unreachable!("Unexpected token: {:?}", t),
             }
         }
@@ -163,34 +172,47 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             *i += 1;
             let queue = match *lex_queue(tokens, i, token.line, false).data {
                 NodeKind::Queue(queue) => queue,
-                _ => unreachable!(),
+                _ => unreachable!("UNREACHABLE"),
             };
-            match &tokens.get(*i).expect("Brace is never closed").data {
+            let token_kind = match tokens.get(*i) {
+                Some(val) => &val.data,
+                None => syntax_error(token.line, "Brace is never closed.".into()),
+            };
+            match token_kind {
                 TokenKind::CloseContext => {
                     *i += 1;
                     Node::new(NodeKind::QuickContext(queue), token.line)
                 }
-                TokenKind::CloseParen => panic!("Unexpected closing paren"),
-                t => unreachable!("Unexpected token: {:?}", t),
+                TokenKind::CloseParen => {
+                    syntax_error(token.line, "Unexpected closing paren.".into())
+                }
+                t => unreachable!("UNREACHABLE: Unexpected token: {:?}.", t),
             }
         }
         TokenKind::Copy => {
             // "copy" SINGLETON EOQ
             *i += 1;
-            let data = NodeKind::Copy(
-                lex_singleton(tokens, i).expect("End of message after keyword `copy'"),
-            );
+            let data = NodeKind::Copy(match lex_singleton(tokens, i) {
+                Some(val) => val,
+                None => syntax_error(token.line, "Unexpected end of copy-statement".into()),
+            });
             Node::new(data, token.line)
         }
         TokenKind::Import => {
             // "import" NAME SINGLETON
             *i += 1;
-            let node = lex_singleton(tokens, i).expect("End of message after keyword `import'");
+            let node = match lex_singleton(tokens, i) {
+                Some(val) => val,
+                None => syntax_error(token.line, "Unexpected end of import-statement".into()),
+            };
             let name = match *node.data {
                 NodeKind::Name(name) => name,
                 _ => None?,
             };
-            let node = lex_singleton(tokens, i).expect("End of message after keyword `import'"); // *
+            let node = match lex_singleton(tokens, i) {
+                Some(val) => val,
+                None => syntax_error(token.line, "Unexpected end of import-statement.".into()),
+            };
             Node::new(NodeKind::Import(name, node), token.line)
         }
         TokenKind::Let => {
@@ -198,12 +220,12 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             *i += 1;
             let name = match &tokens[*i].data {
                 TokenKind::Name(name) => name,
-                _ => panic!("Name is expected after `let' keyword"),
+                _ => syntax_error(token.line, "Unexpected end of let-statement.".into()),
             };
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
                 Some(node) => NodeKind::Let(name.clone(), node),
-                None => panic!("Proba error: Syntax: Empty let-statement value expression."),
+                None => syntax_error(token.line, "Unexpected end of let-statement.".into()),
             };
             Node::new(node_data, token.line)
         }
@@ -212,22 +234,25 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             *i += 1;
             let name = match &tokens[*i].data {
                 TokenKind::Name(name) => name,
-                _ => panic!("Name is expected after `set' keyword"),
+                _ => syntax_error(token.line, "Name is expected after `set' keyword.".into()),
             };
             *i += 1;
             let node_data = match lex_message_chain(tokens, i) {
                 Some(node) => NodeKind::Set(name.clone(), node),
-                None => panic!("Proba error: Syntax: Empty let-statement value expression."),
+                None => syntax_error(token.line, "Unexpected end of set-statement.".into()),
             };
             Node::new(node_data, token.line)
         }
         TokenKind::At => {
             // "at" SINGLETON MESSAGE_CHAIN EOQ
             *i += 1;
-            let context = lex_singleton(tokens, i).expect("Expecting singleton message");
+            let context = match lex_singleton(tokens, i) {
+                Some(val) => val,
+                None => syntax_error(token.line, "Expecting singleton message.".into()),
+            };
             match lex_message_chain(tokens, i) {
                 Some(node) => Node::new(NodeKind::At(context, node), token.line),
-                None => panic!("Empty context message"), // Node::At(Box::new(context.clone()), Box::new(context)),
+                None => syntax_error(token.line, "Empty body of at-statement.".into()),
             }
         }
         TokenKind::On => {
@@ -236,12 +261,20 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
             // Patterns
             let mut patterns = vec![];
             while *i < tokens.len() {
-                let token_data = &tokens.get(*i).expect("Unfinished method definition").data;
+                let token_data = match tokens.get(*i) {
+                    Some(val) => &val.data,
+                    None => syntax_error(token.line, "Unfinished method definition.".into()),
+                };
                 let pattern_kind = match token_data {
                     TokenKind::Name(n) if n.as_str() == ":" => {
                         // Keyword-pattern
                         *i += 1;
-                        let token = tokens.get(*i).expect("Unfinished method definition");
+                        let token = match tokens.get(*i) {
+                            Some(val) => val,
+                            None => {
+                                syntax_error(token.line, "Unfinished method definition.".into())
+                            }
+                        };
                         match &token.data {
                             TokenKind::Name(name) => {
                                 let data = NodeKind::Name(name.clone());
@@ -251,13 +284,20 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                                 );
                                 patterns.push(Node::new(data, token.line));
                                 *i += 1;
-                                match &tokens.get(*i).expect("Unfinished method definition").data {
+                                let token_kind = match tokens.get(*i) {
+                                    Some(val) => &val.data,
+                                    None => syntax_error(
+                                        token.line,
+                                        "Unfinished method definition.".into(),
+                                    ),
+                                };
+                                match token_kind {
                                     TokenKind::EOQ => {
                                         *i += 1;
                                         continue;
                                     }
                                     TokenKind::Do => break,
-                                    t => panic!("Expecting `;', or `do' after a keyword-pattern, got: {t:?}"),
+                                    _ => syntax_error(token.line, "Expecting `;', or `do' after a keyword-pattern, got: {t:?}".into()),
                                 }
                             }
                             _ => panic!("Expecting a name after key-operator `:'"),
@@ -269,16 +309,29 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                     }
                     _ => PatternKind::Prototype,
                 };
-                let pattern_message = lex_message_chain(tokens, i).expect("Empty pattern message");
-                let node = tokens.get(*i).expect("Unfinished method definition");
+                let pattern_message = match lex_message_chain(tokens, i) {
+                    Some(val) => val,
+                    None => syntax_error(token.line, "Empty pattern message.".into()),
+                };
+                let node = {
+                    match tokens.get(*i) {
+                        Some(val) => val,
+                        None => syntax_error(token.line, "Unfinished method definition.".into()),
+                    }
+                };
                 match node.data {
                     TokenKind::As => {
                         *i += 1;
-                        let token = tokens.get(*i).expect("Unfinished method definition");
+                        let token = match tokens.get(*i) {
+                            Some(val) => val,
+                            None => {
+                                syntax_error(token.line, "Unfinished method definition.".into())
+                            }
+                        };
                         let name = if let TokenKind::Name(name) = &token.data {
                             name.clone()
                         } else {
-                            panic!("Expecting a name after token `as'")
+                            syntax_error(token.line, "Expecting a name after token `as'.".into())
                         };
                         *i += 1;
                         let node_data = NodeKind::As(
@@ -289,13 +342,22 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                             name,
                         );
                         patterns.push(Node::new(node_data, token.line));
-                        match tokens.get(*i).expect("Unfinished method definition").data {
+                        let token_kind = match tokens.get(*i) {
+                                Some(val) => &val.data,
+                                None => {
+                                    syntax_error(token.line, "Unfinished method definition.".into())
+                                }
+                            };
+                        match token_kind {
                             TokenKind::EOQ => {
                                 *i += 1;
                                 continue;
                             }
                             TokenKind::Do => break,
-                            _ => panic!("Expecting `;' or one of keywords `as' and `do'"),
+                            _ => syntax_error(
+                                token.line,
+                                "Expecting `;' or one of keywords `as' and `do'.".into(),
+                            ),
                         }
                     }
                     TokenKind::EOQ => {
@@ -313,22 +375,25 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                         ));
                         break;
                     }
-                    _ => panic!("Expecting `;' or one of keywords `as' and `do'"),
+                    _ => syntax_error(
+                        token.line,
+                        "Expecting `;' or one of keywords `as' and `do'".into(),
+                    ),
                 }
             }
             let token_data = &tokens[*i].data;
             *i += 1;
             if patterns.is_empty() {
-                panic!("Empty pattern in method definition")
+                syntax_error(token.line, "Empty pattern in method definition.".into())
             }
             // Body
-            let body_message = lex_message_chain(tokens, i).expect(
-                format!(
-                    "Syntax error: on line {}: Empty body message of method definition",
-                    token.line
-                )
-                .as_str(),
-            );
+            let body_message = match lex_message_chain(tokens, i) {
+                Some(val) => val,
+                None => syntax_error(
+                    token.line,
+                    "Empty body message of method definition.".into(),
+                ),
+            };
             let data = match token_data {
                 TokenKind::Do => {
                     expand_method_definition(NodeKind::OnDo(patterns, body_message), token.line)
@@ -382,4 +447,9 @@ pub(crate) fn expand_method_definition(node_data: NodeKind, line: usize) -> Node
         }
         n => panic!("Wrong token type to expand method definition {n:?}"),
     }
+}
+
+fn syntax_error(line: usize, message: String) -> ! {
+    println!("Syntax error on line {line}: {message}");
+    exit(0)
 }

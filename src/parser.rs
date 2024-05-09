@@ -40,9 +40,10 @@ pub fn parse_file(file_path: String) -> Result<Vec<Token>, std::io::Error> {
 
 pub fn parse_str(string: &str) -> Vec<Token> {
     let token_re =
-        Regex::new(r#"(\[[^\]]*\]|"[^"]+"|[(){};]|[\w~!@#$%^&*\-+=:|\\,.\/<>?]+|\s+|.)"#).unwrap();
+        Regex::new(r#"(\[\[[^\]]*\]\]|"[^"]+"|[(){};]|[\w~!@#$%^&*\-+=:|\\,.\/<>?]+|[[\]]|\s+|.)"#)
+            .unwrap();
     let string_re = Regex::new(r#"^"[^"]+"$"#).unwrap();
-    let comment_re = Regex::new(r#"^\[[^\]]*\]$"#).unwrap();
+    let comment_re = Regex::new(r#"^\[\[[^\]]*\]\]$"#).unwrap();
 
     let mut tokens = Vec::new();
     let mut line_count = 0usize;
@@ -59,8 +60,8 @@ pub fn parse_str(string: &str) -> Vec<Token> {
             "at" => TokenKind::At,
             "let" => TokenKind::Let,
             "set" => TokenKind::Set,
-            "on" => TokenKind::On,
-            "do" => TokenKind::Do,
+            "on" | "[" => TokenKind::On,
+            "do" | "]" => TokenKind::Do,
             "as" => TokenKind::As,
             "return" => TokenKind::Return,
             "repeat" => TokenKind::Repeat,
