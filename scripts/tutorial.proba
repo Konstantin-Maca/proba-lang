@@ -35,7 +35,7 @@ at my_object (
 
 [ if..then..else ]
 (1 == -1) then Object else None
-  println; [ -> None ]
+  println; [ Prints just a new line, because None is nothing ]
 
 [ match..case ]
 let my_matcher {
@@ -48,4 +48,4 @@ let my_matcher {
   [ The block returns itself, because the method definition returns current context ]
 };
 my_matcher False println [ -> -2 ];
-my_matcher my_object println [ -> None ];
+my_matcher my_object println [ Prints nothing ];

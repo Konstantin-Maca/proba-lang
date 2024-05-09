@@ -5,8 +5,17 @@ pub fn exec(
     code: &str,
 ) -> Result<usize, crate::executor::Interrupt> {
     let tokens = crate::parser::parse_str(code);
-    let tree = crate::lexer::lex(tokens);
-    crate::executor::execute(state, tree)
+    let node_tree = crate::lexer::lex(tokens);
+    crate::executor::execute(state, node_tree)
+}
+
+pub fn execf(
+    state: &mut crate::vmstate::State,
+    file_path: &str,
+) -> Result<usize, crate::executor::Interrupt> {
+    let tokens = crate::parser::parse_file(file_path.into()).unwrap();
+    let node_tree = crate::lexer::lex(tokens);
+    crate::executor::execute(state, node_tree)
 }
 
 pub fn at(

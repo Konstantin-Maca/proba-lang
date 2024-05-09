@@ -1,7 +1,5 @@
-use crate::executor::{execute, Interrupt, LIB_DIR};
-use crate::lexer::lex;
-use crate::parser::parse_file;
-use crate::rpmt::exec;
+use crate::executor::{Interrupt, LIB_DIR};
+use crate::rpmt::*;
 use crate::vmstate::{Body, Pattern, State, Value};
 
 pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
@@ -226,10 +224,8 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
 
     exec(
         state,
-        "
-        let None at copy Object ( on : none? do True; );
-        at Object on : none? do False;
-        ",
+        "let None at copy Object ( on : none? do True; );
+        at Object on : none? do False;",
     )
     .unwrap();
     {
@@ -252,11 +248,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
         );
     }
 
-    execute(
-        state,
-        lex(parse_file(LIB_DIR.to_string() + "/list.proba").unwrap()),
-    )
-    .unwrap();
+    execf(state, &(LIB_DIR.to_string() + "/std.proba")).unwrap();
 
     return Ok(0);
 }
