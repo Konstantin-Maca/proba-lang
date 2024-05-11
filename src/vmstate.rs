@@ -109,13 +109,20 @@ impl State {
             return Some(0);
         }
         if ptr == 0 {
-            return None;
+            None?;
         }
-        match self.objects.iter().find(|obj| obj.0 == ptr) {
-            Some((_, ptr, _)) => Some(self.relation(*ptr, parent_ptr)? + 1),
-            None => None,
-        }
+        Some(self.relation(self.parent(ptr)?, parent_ptr)? + 1)
     }
+    pub fn relation_ctx(&self, ptr: usize, super_context_ptr: usize) -> Option<usize> {
+        if ptr == super_context_ptr {
+            return Some(0);
+        }
+        if ptr == 1 || ptr == 0 {
+            None?;
+        }
+        Some(self.relation_ctx(self.context_of(ptr)?, super_context_ptr)? + 1)
+    }
+
     pub fn parent(&self, ptr: usize) -> Option<usize> {
         Some(self.objects.iter().find(|obj| obj.0 == ptr)?.1)
     }
@@ -189,7 +196,7 @@ impl State {
         for (ptr, is_for_method) in self.contexts.iter().rev() {
             // println!("Next context: {ptr}");
             match self.get_field(*ptr, name.clone()) {
-                Some((ptr, value)) if self.have_access(prev_context, ptr) => {
+                Some((ptr, value)) if self.have_access_premission(prev_context, ptr) => {
                     // println!("GET FIELD VALUE OF CTX NAMED {} => {:?}", name, Some(value));
                     return Some(value);
                 }
@@ -204,7 +211,7 @@ impl State {
         result
     }
 
-    fn have_access(&self, prev_context: Option<usize>, ptr: usize) -> bool {
+    fn have_access_premission(&self, prev_context: Option<usize>, ptr: usize) -> bool {
         if prev_context.is_none() {
             // println!("HAVE ACCESS FROM {prev_context:?} AT {ptr} => true (GLOBAL)");
             true

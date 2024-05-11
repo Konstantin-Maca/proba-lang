@@ -275,7 +275,13 @@ pub fn execute_method(
     arg: (String, usize),
     file_path: String,
 ) -> Result<usize, Interrupt> {
-    let context = state.copy(owner_ptr).unwrap();
+    let context = {
+        state.objects.iter().find(|obj| obj.0 == owner_ptr).unwrap();
+        let new_ptr = state.op_count;
+        state.op_count += 1;
+        state.objects.push((new_ptr, owner_ptr, owner_ptr));
+        new_ptr
+    };
     let prev_file_path = unsafe { CURRENT_FILE_PATH.clone() };
     unsafe { CURRENT_FILE_PATH = file_path }
 
