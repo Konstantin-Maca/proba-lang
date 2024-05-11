@@ -297,10 +297,13 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                                         continue;
                                     }
                                     TokenKind::Do => break,
-                                    _ => syntax_error(token.line, "Expecting `;', or `do' after a keyword-pattern, got: {t:?}".into()),
+                                    _ => syntax_error(token.line, format!("Expecting `;', or `do' after a keyword-pattern, but got: {token:?}")),
                                 }
                             }
-                            _ => panic!("Expecting a name after key-operator `:'"),
+                            _ => syntax_error(
+                                token.line,
+                                format!("Expecting a name after `:', but got {token:?}"),
+                            ),
                         }
                     }
                     TokenKind::Name(n) if n.as_str() == "=" => {
@@ -450,6 +453,7 @@ pub(crate) fn expand_method_definition(node_data: NodeKind, line: usize) -> Node
 }
 
 fn syntax_error(line: usize, message: String) -> ! {
+    let line = line + 1;
     println!("Syntax error on line {line}: {message}");
     exit(0)
 }
