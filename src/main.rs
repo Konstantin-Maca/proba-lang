@@ -35,21 +35,6 @@ pub(crate) static mut PROG_CONFIG: Config = Config::new();
 fn main() {
     const TEST_FILE_PATH: &str = "scripts/test.proba";
     parse_args(unsafe { &mut PROG_CONFIG });
-
-    let file_path = if let Some(fp) = unsafe { PROG_CONFIG.file_path.clone() } {
-        fp
-    } else {
-        unsafe { PROG_CONFIG.file_path = Some(TEST_FILE_PATH.into()) };
-        TEST_FILE_PATH.into()
-    };
-    let tokens = match parser::parse_file(file_path.clone()) {
-        Ok(tokens) => tokens,
-        Err(_) => {
-            println!("Failed to open file `{file_path}'");
-            exit(0)
-        }
-    };
-    let tree = lexer::lex(tokens);
     let mut state = vmstate::State::new();
     match probastd::define_standard(&mut state) {
         Ok(_) => (),
@@ -58,7 +43,22 @@ fn main() {
             proba_exit(state, Err(int));
         }
     }
+    let file_path = if let Some(fp) = unsafe { PROG_CONFIG.file_path.clone() } {
+        fp
+    } else {
+        unsafe { PROG_CONFIG.file_path = Some(TEST_FILE_PATH.into()) };
+        TEST_FILE_PATH.into()
+    };
 
+    let tokens = match parser::parse_file(file_path.clone()) {
+        Ok(tokens) => tokens,
+        Err(_) => {
+            println!("Failed to open file `{file_path}'");
+            exit(0)
+        }
+    };
+    let tree = lexer::lex(tokens);
+    
     unsafe { executor::CURRENT_FILE_PATH = PROG_CONFIG.file_path.clone().unwrap() };
     let result = executor::execute(&mut state, tree);
     proba_exit(state, result);
@@ -92,7 +92,7 @@ fn parse_args(config: &mut Config) {
 
 fn proba_error(file_path: String, line: usize, message: &str) -> ! {
     let line = line + 1;
-    println!("\nRuntime error on line {line} in `{file_path}'\n: {message}");
+    println!("\nRuntime error on line {line} in `{file_path}':\n {message}");
     exit(0)
 }
 

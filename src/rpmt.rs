@@ -1,14 +1,14 @@
 // Rusty Proba-Module Tools
 use crate::{
     executor::{execute, Interrupt, CURRENT_FILE_PATH},
-    lexer::{self, lex},
+    lexer::lex,
     parser::{parse_file, parse_str},
     vmstate::State,
 };
 
 pub fn exec(state: &mut State, code: &str) -> Result<usize, Interrupt> {
     let tokens = parse_str(code);
-    let node_tree = lexer::lex(tokens);
+    let node_tree = lex(tokens);
     execute(state, node_tree)
 }
 

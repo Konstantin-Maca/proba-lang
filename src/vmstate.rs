@@ -1,4 +1,4 @@
-use crate::executor::Interrupt;
+use crate::executor::{Interrupt, CURRENT_FILE_PATH};
 use crate::lexer::Node;
 
 #[derive(Debug, Clone, Copy)]
@@ -62,7 +62,7 @@ pub struct State {
 
     pub objects: Vec<(usize, usize, usize)>, // (ptr, parent_ptr, cotnext_ptr)
     pub fields: Vec<(usize, String, Value)>, // (owner_ptr, name, ptr|int|float)
-    pub methods: Vec<(usize, Pattern, Body)>, // (owner_ptr, pattern, body)
+    pub methods: Vec<(usize, Pattern, Body, String)>, // (owner_ptr, pattern, body, file)
 }
 
 impl State {
@@ -237,11 +237,11 @@ impl State {
         } else {
             false
         };
-        self.methods.push((ptr, pattern, body));
+        self.methods.push((ptr, pattern, body, unsafe { CURRENT_FILE_PATH.clone() }));
         redefined
     }
     /// Use when message is a name (word (keyword)).
-    pub fn get_method(&self, ptr: usize, keyword: String) -> Option<&(usize, Pattern, Body)> {
+    pub fn get_method(&self, ptr: usize, keyword: String) -> Option<&(usize, Pattern, Body, String)> {
         match self
             .methods
             .iter()
@@ -259,7 +259,7 @@ impl State {
         }
     }
     /// Use when message is a name (word (keyword)).
-    pub fn get_method_ctx(&self, keyword: String) -> Option<&(usize, Pattern, Body)> {
+    pub fn get_method_ctx(&self, keyword: String) -> Option<&(usize, Pattern, Body, String)> {
         for &(ptr, is_for_method) in self.contexts.iter().rev() {
             match self.get_method(ptr, keyword.clone()) {
                 Some(method) => return Some(method),

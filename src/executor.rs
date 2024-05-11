@@ -32,13 +32,14 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             let message = match msg_node.data.deref() {
                 NodeKind::Name(ref name) => {
                     let some_method = state.get_method(recipient, name.clone());
-                    if let Some((_, _, body)) = some_method {
+                    if let Some((_, _, body, fp)) = some_method {
                         // Try call method of the recipient-object
                         return execute_method(
                             state,
                             recipient,
                             body.clone(),
                             (format!("[:{name}]").into(), recipient),
+                            fp.into(),
                         );
                     }
                     execute(state, msg_node.clone())?
@@ -59,7 +60,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 Pattern::Eq(_) | Pattern::Pt(_) => format!("[[no as]]").into(),
                 Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
             };
-            execute_method(state, recipient, method.2, (name, message))
+            execute_method(state, recipient, method.2, (name, message), method.3)
         }
         NodeKind::Name(name) => {
             let some_method = state.get_method_ctx(name.clone());
@@ -70,13 +71,13 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                     format!("There is no field or key-method named `{name}'"),
                 ))?,
             };
-            if let Some((_, pattern, body)) = some_method {
+            if let Some((_, pattern, body, fp)) = some_method {
                 // Try call method of the context-object
                 let name = match pattern {
                     Pattern::Kw(_) | Pattern::Eq(_) | Pattern::Pt(_) => format!("[[no as]]").into(),
                     Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                 };
-                execute_method(state, context, body.clone(), (name, context))
+                execute_method(state, context, body.clone(), (name, context), fp.clone())
             } else if let Some(value) = state.get_field_value_ctx(name.into()) {
                 // Try get field of a context-object
                 match value {
@@ -232,43 +233,6 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             );
             Ok(state.contexts.last().unwrap().0)
         }
-        // NOTE: Maybe useless
-        // NodeKind::OnRust(patterns, body_func) => {
-        //     if patterns.len() != 1 {
-        //         unreachable!()
-        //     }
-        //     let pattern = match patterns[0].data.deref() {
-        //         NodeKind::Pattern(PatternKind::Keyword, name_node) => {
-        //             let name = match name_node.data.deref() {
-        //                 NodeKind::Name(name) => name,
-        //                 _ => unreachable!(),
-        //             };
-        //             Pattern::Kw(name.clone())
-        //         }
-        //         NodeKind::Pattern(PatternKind::Prototype, node) => {
-        //             Pattern::Pt(execute(state, node.clone())?)
-        //         }
-        //         NodeKind::Pattern(PatternKind::Equalness, node) => {
-        //             Pattern::Eq(execute(state, node.clone())?)
-        //         }
-        //         NodeKind::As(pattern_node, alias) => match pattern_node.data.deref() {
-        //             NodeKind::Pattern(PatternKind::Prototype, node) => {
-        //                 Pattern::PtA(execute(state, node.clone())?, alias.clone())
-        //             }
-        //             NodeKind::Pattern(PatternKind::Equalness, node) => {
-        //                 Pattern::EqA(execute(state, node.clone())?, alias.clone())
-        //             }
-        //             _ => unreachable!(),
-        //         },
-        //         _ => unreachable!(),
-        //     };
-        //     state.define_method(
-        //         state.contexts.last().unwrap().0,
-        //         pattern,
-        //         Body::Rust(*body_func),
-        //     );
-        //     Ok(state.contexts.last().unwrap().0)
-        // }
         NodeKind::Import(name, node) => {
             // TODO: Put here dir of the executed file
             let target_object_ptr = execute(state, node.clone())?;
@@ -309,8 +273,12 @@ pub fn execute_method(
     owner_ptr: usize,
     body: Body,
     arg: (String, usize),
+    file_path: String,
 ) -> Result<usize, Interrupt> {
     let context = state.copy(owner_ptr).unwrap();
+    let prev_file_path = unsafe { CURRENT_FILE_PATH.clone() };
+    unsafe { CURRENT_FILE_PATH = file_path }
+
     state.contexts.push((context, true));
     state.let_field(context, arg.0, Value::Pointer(arg.1));
     let result = loop {
@@ -326,6 +294,9 @@ pub fn execute_method(
         }
     };
     state.contexts.pop().unwrap();
+
+    unsafe { CURRENT_FILE_PATH = prev_file_path }
+
     result
 }
 
@@ -333,8 +304,8 @@ pub fn match_method(
     state: &mut State,
     ptr: usize,
     message: usize,
-) -> Option<(usize, Pattern, Body)> {
-    for (owner_ptr, pattern, body) in state.methods.clone().iter() {
+) -> Option<(usize, Pattern, Body, String)> {
+    for (owner_ptr, pattern, body, fp) in state.methods.clone().iter() {
         match pattern {
             Pattern::Eq(pattern_ptr) | Pattern::EqA(pattern_ptr, ..)
                 if *owner_ptr == ptr && {
@@ -345,6 +316,7 @@ pub fn match_method(
                         *pattern_ptr,
                         method.2.clone(),
                         ("[[no as *MM]]".into(), 0),
+                        "<std>".into(),
                     )
                     .unwrap();
 
@@ -355,7 +327,7 @@ pub fn match_method(
                         _ => unreachable!(),
                     };
                     let result_ptr =
-                        execute_method(state, ptr, method.2.clone(), (arg_name, message));
+                        execute_method(state, ptr, method.2.clone(), (arg_name, message), method.3.clone());
 
                     result_ptr.unwrap()
                         == state
@@ -364,12 +336,12 @@ pub fn match_method(
                             .unwrap_ptr()
                 } =>
             {
-                return Some((*owner_ptr, pattern.clone(), body.clone()));
+                return Some((*owner_ptr, pattern.clone(), body.clone(), fp.clone()));
             }
             Pattern::Pt(pattern_ptr) | Pattern::PtA(pattern_ptr, ..)
                 if *owner_ptr == ptr && state.relation(message, pattern_ptr.clone()).is_some() =>
             {
-                return Some((*owner_ptr, pattern.clone(), body.clone()))
+                return Some((*owner_ptr, pattern.clone(), body.clone(), fp.clone()))
             }
             _ => continue,
         }
@@ -444,10 +416,15 @@ pub fn import_module(
         }
     }
     let result = match file_path {
-        Some(file_path) => match crate::parser::parse_file(file_path) {
+        Some(file_path) => match crate::parser::parse_file(file_path.clone()) {
             Ok(tokens) => {
                 let tree_node = crate::lexer::lex(tokens);
-                execute(state, tree_node)
+                let prev_file_path = unsafe { CURRENT_FILE_PATH.clone() };
+
+                unsafe { CURRENT_FILE_PATH = file_path }
+                let result = execute(state, tree_node);
+                unsafe { CURRENT_FILE_PATH = prev_file_path }
+                result
             }
             Err(_) => Err(Interrupt::Err(format!(
                 "Import error: There is no method with name `{module_name}'."
