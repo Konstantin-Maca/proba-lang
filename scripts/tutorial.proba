@@ -1,51 +1,51 @@
-[ Define fields in the global context object ]
+[[ Define fields in the global context object ]]
 let my_object Object;
 
-[ Change their value ]
+[[ Change their value ]]
 set my_object copy my_object;
 
-[ Enter into any object ]
+[[ Enter into any object ]]
 at my_object
-  let my_field 3;
+    let my_field 3;
 
-[ Define keyword-method ]
+[[ Define keyword-method ]]
 let counter 0 println;
 on : count do counter ++;
 count;
-counter println; [ -> 1 ]
+counter println; [[ -> 1 ]]
 count; count;
-counter println; [ -> 3 ]
+counter println; [[ -> 3 ]]
 
-[ Pattern-methods ]
-[ Inhetitance-matching ]
+[[ Pattern-methods ]]
+[[ Inhetitance-matching ]]
 at my_object
-  on my_object as X do X println;
-my_object my_object; [ -> id of the object ]
-my_object copy my_object; [ -> id of the new object]
-[my_object Object;] [ -> error: our object has no method to handle the Object ]
+    on my_object as X do X println;
+my_object my_object; [[ -> id of the object ]]
+my_object copy my_object; [[ -> id of the new object]]
+[[my_object Object;]] [[ -> error: our object has no method to handle the Object ]]
 
-[ Equalness ]
-[ If an object does not have defined kw-method "==",
-  then the Object's default method will be used,
-  that returns True, if an object is compared with itself. ]
+[[ Equalness ]]
+[[ If an object does not have defined kw-method "==",
+    then the Object's default method will be used,
+    that returns True, if an object is compared with itself. ]]
 at my_object (
-  on = Object do None [ reacts on the Object ];
-  on = 7 do None [ reacts on the integer 7 ];
+    on = Object do None [[ reacts on the Object ]];
+    on = 7 do None [[ reacts on the integer 7 ]];
 );
 
-[ if..then..else ]
+[[ if..then..else ]]
 (1 == -1) then Object else None
-  println; [ Prints just a new line, because None is nothing ]
+    println; [[ Prints just a new line, because None is nothing ]]
 
-[ match..case ]
+[[ match..case ]]
 let my_matcher {
-  [ Brace-block create new object that inheritances current context. ]
+    [[ Brace-block create new object that inheritances current context. ]]
 
-  on True do 2;
-  on False do -2;
-  on Object do [ For the case if a wrong object is given ]
-    None;
-  [ The block returns itself, because the method definition returns current context ]
+    on True do 2;
+    on False do -2;
+    on Object do [[ For the case if a wrong object is given ]]
+        None;
+    [[ The block returns itself, because the method definition returns current context ]]
 };
-my_matcher False println [ -> -2 ];
-my_matcher my_object println [ Prints nothing ];
+my_matcher False println [[ -> -2 ]];
+my_matcher my_object println [[ Prints nothing ]];

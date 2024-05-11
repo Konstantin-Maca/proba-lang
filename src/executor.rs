@@ -36,7 +36,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                             state,
                             recipient,
                             body.clone(),
-                            ("".into(), recipient),
+                            (format!("[:{name}]").into(), recipient),
                         );
                     }
                     execute(state, msg_node.clone())?
@@ -54,7 +54,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             };
             let name = match method.1 {
                 Pattern::Kw(_) => unreachable!(),
-                Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                Pattern::Eq(_) | Pattern::Pt(_) => format!("[[no as]]").into(),
                 Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
             };
             execute_method(state, recipient, method.2, (name, message))
@@ -71,12 +71,12 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             if let Some((_, pattern, body)) = some_method {
                 // Try call method of the context-object
                 let name = match pattern {
-                    Pattern::Kw(_) | Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                    Pattern::Kw(_) | Pattern::Eq(_) | Pattern::Pt(_) => format!("[[no as]]").into(),
                     Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                 };
                 execute_method(state, context, body.clone(), (name, context))
-            } else if let Some(value) = state.get_field_ctx(name.into()) {
-                // Try get field of a context-object and then react to it's answer
+            } else if let Some(value) = state.get_field_value_ctx(name.into()) {
+                // Try get field of a context-object
                 match value {
                     Value::Pointer(ptr) => Ok(ptr),
                     Value::Int(_) | Value::Float(_) => todo!("Do something with system values"),
@@ -90,7 +90,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         }
         NodeKind::Int(value) => {
             let ptr = state
-                .copy(state.get_field(1, "Int".into()).unwrap().unwrap_ptr())
+                .copy(state.get_field_value(1, "Int".into()).unwrap().unwrap_ptr())
                 .unwrap();
             state.let_field(ptr, "value".into(), Value::Int(*value));
             Ok(ptr)
@@ -141,7 +141,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             {
                 Err(Interrupt::Error(
                     node.line,
-                    "You can not define a field in this context.".into(),
+                    "Unable to access fileds of the context object here.".into(),
                 ))?
             }
 
@@ -176,7 +176,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             {
                 Err(Interrupt::Error(
                     node.line,
-                    "You can not define a field in this context.".into(),
+                    "Unable to access fileds of the context object here.".into(),
                 ))?
             }
 
@@ -338,19 +338,28 @@ pub fn match_method(
                 if *owner_ptr == ptr && {
                     // pattern_ptr == message
                     let method = state.get_method(*pattern_ptr, "==".into()).unwrap();
-                    let ptr = execute_method(state, *pattern_ptr, method.2.clone(), ("".into(), 0))
-                        .unwrap();
+                    let ptr = execute_method(
+                        state,
+                        *pattern_ptr,
+                        method.2.clone(),
+                        ("[[no as *MM]]".into(), 0),
+                    )
+                    .unwrap();
 
                     let method = match_method(state, ptr, message).unwrap();
                     let arg_name = match &method.1 {
-                        Pattern::Eq(_) | Pattern::Pt(_) => "".into(),
+                        Pattern::Eq(_) | Pattern::Pt(_) => "[[no as *MM2]]".into(),
                         Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                         _ => unreachable!(),
                     };
                     let result_ptr =
                         execute_method(state, ptr, method.2.clone(), (arg_name, message));
 
-                    result_ptr.unwrap() == state.get_field(1, "True".into()).unwrap().unwrap_ptr()
+                    result_ptr.unwrap()
+                        == state
+                            .get_field_value(1, "True".into())
+                            .unwrap()
+                            .unwrap_ptr()
                 } =>
             {
                 return Some((*owner_ptr, pattern.clone(), body.clone()));

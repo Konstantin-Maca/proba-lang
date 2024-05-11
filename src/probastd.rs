@@ -46,7 +46,10 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     )
     .unwrap();
     {
-        let true_ptr = state.get_field(1, "True".into()).unwrap().unwrap_ptr();
+        let true_ptr = state
+            .get_field_value(1, "True".into())
+            .unwrap()
+            .unwrap_ptr();
         state.define_method(
             true_ptr,
             Pattern::Kw("print".into()),
@@ -64,7 +67,10 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
             }),
         );
 
-        let false_ptr = state.get_field(1, "False".into()).unwrap().unwrap_ptr();
+        let false_ptr = state
+            .get_field_value(1, "False".into())
+            .unwrap()
+            .unwrap_ptr();
         state.define_method(
             false_ptr,
             Pattern::Kw("print".into()),
@@ -73,7 +79,10 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                 Ok(state.recipient().unwrap())
             }),
         );
-        let false_ptr = state.get_field(1, "False".into()).unwrap().unwrap_ptr();
+        let false_ptr = state
+            .get_field_value(1, "False".into())
+            .unwrap()
+            .unwrap_ptr();
         state.define_method(
             false_ptr,
             Pattern::Kw("println".into()),
@@ -98,11 +107,20 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                     Pattern::PtA(0, "other".into()),
                     Body::Rust(|state| {
                         let first_recipient_ptr = state.parent(state.recipient().unwrap()).unwrap();
-                        let other_ptr = state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
+                        let other_ptr = state
+                            .get_field_value_ctx("other".into())
+                            .unwrap()
+                            .unwrap_ptr();
                         if first_recipient_ptr == other_ptr {
-                            Ok(state.get_field_ctx("True".into()).unwrap().unwrap_ptr())
+                            Ok(state
+                                .get_field_value_ctx("True".into())
+                                .unwrap()
+                                .unwrap_ptr())
                         } else {
-                            Ok(state.get_field_ctx("False".into()).unwrap().unwrap_ptr())
+                            Ok(state
+                                .get_field_value_ctx("False".into())
+                                .unwrap()
+                                .unwrap_ptr())
                         }
                     }),
                 );
@@ -132,7 +150,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                 let subcontext = state.copy(recipient_ptr).unwrap();
                 state.contexts.push((subcontext, false));
 
-                let int_ptr = state.get_field(1, "Int".into()).unwrap().unwrap_ptr();
+                let int_ptr = state.get_field_value(1, "Int".into()).unwrap().unwrap_ptr();
                 state.define_method(
                     state.here().unwrap(),
                     Pattern::PtA(int_ptr, "other".into()),
@@ -140,21 +158,30 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                         // first_recipient.value == message.value
                         let first_recipient_ptr = state.parent(state.recipient().unwrap()).unwrap();
                         let left_value = state
-                            .get_field(first_recipient_ptr, "value".into())
+                            .get_field_value(first_recipient_ptr, "value".into())
                             .unwrap()
                             .unwrap_int();
 
-                        let other_ptr = state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
+                        let other_ptr = state
+                            .get_field_value_ctx("other".into())
+                            .unwrap()
+                            .unwrap_ptr();
                         let right_value = state
-                            .get_field(other_ptr, "value".into())
+                            .get_field_value(other_ptr, "value".into())
                             .unwrap()
                             .unwrap_int();
 
                         if left_value == right_value {
                             // TODO: Replace with get_field(1, ...)
-                            Ok(state.get_field(1, "True".into()).unwrap().unwrap_ptr())
+                            Ok(state
+                                .get_field_value(1, "True".into())
+                                .unwrap()
+                                .unwrap_ptr())
                         } else {
-                            Ok(state.get_field(1, "False".into()).unwrap().unwrap_ptr())
+                            Ok(state
+                                .get_field_value(1, "False".into())
+                                .unwrap()
+                                .unwrap_ptr())
                         }
                     }),
                 );
@@ -164,12 +191,21 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                     Pattern::PtA(0, "other".into()),
                     Body::Rust(|state| {
                         let first_recipient_ptr = state.parent(state.recipient().unwrap()).unwrap();
-                        let other_ptr = state.get_field_ctx("other".into()).unwrap().unwrap_ptr();
+                        let other_ptr = state
+                            .get_field_value_ctx("other".into())
+                            .unwrap()
+                            .unwrap_ptr();
 
                         if first_recipient_ptr == other_ptr {
-                            Ok(state.get_field_ctx("True".into()).unwrap().unwrap_ptr())
+                            Ok(state
+                                .get_field_value_ctx("True".into())
+                                .unwrap()
+                                .unwrap_ptr())
                         } else {
-                            Ok(state.get_field_ctx("False".into()).unwrap().unwrap_ptr())
+                            Ok(state
+                                .get_field_value_ctx("False".into())
+                                .unwrap()
+                                .unwrap_ptr())
                         }
                     }),
                 );
@@ -184,7 +220,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
             Body::Rust(|state| {
                 let recipient_ptr = state.recipient().unwrap();
                 let value = state
-                    .get_field(recipient_ptr, "value".into())
+                    .get_field_value(recipient_ptr, "value".into())
                     .unwrap()
                     .unwrap_int();
                 print!("{value}");
@@ -197,7 +233,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
             Body::Rust(|state| {
                 let recipient_ptr = state.recipient().unwrap();
                 let value = state
-                    .get_field(recipient_ptr, "value".into())
+                    .get_field_value(recipient_ptr, "value".into())
                     .unwrap()
                     .unwrap_int();
                 println!("{value}");
@@ -211,7 +247,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
             Body::Rust(|state| {
                 let recipient_ptr = state.recipient().unwrap();
                 let value = state
-                    .get_field(recipient_ptr, "value".into())
+                    .get_field_value(recipient_ptr, "value".into())
                     .unwrap()
                     .unwrap_int();
                 state.set_field(recipient_ptr, "value".into(), Value::Int(value + 1));
@@ -229,7 +265,10 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     )
     .unwrap();
     {
-        let none_ptr = state.get_field(1, "None".into()).unwrap().unwrap_ptr();
+        let none_ptr = state
+            .get_field_value(1, "None".into())
+            .unwrap()
+            .unwrap_ptr();
         state.define_method(
             none_ptr,
             Pattern::Kw("print".into()),
@@ -246,9 +285,17 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
                 Ok(state.recipient().unwrap())
             }),
         );
+        state.define_method(
+            none_ptr,
+            Pattern::Kw("dbg".into()),
+            Body::Rust(|state| {
+                println!("[[None]]");
+                Ok(state.recipient().unwrap())
+            }),
+        );
     }
 
-    execf(state, &(LIB_DIR.to_string() + "/std.proba")).unwrap();
+    execf(state, &(LIB_DIR.to_string() + "/std.proba"))?;
 
     return Ok(0);
 }

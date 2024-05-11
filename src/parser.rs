@@ -40,7 +40,7 @@ pub fn parse_file(file_path: String) -> Result<Vec<Token>, std::io::Error> {
 
 pub fn parse_str(string: &str) -> Vec<Token> {
     let token_re =
-        Regex::new(r#"(\[\[[^\]]*\]\]|"[^"]+"|[(){};]|[\w~!@#$%^&*\-+=:|\\,.\/<>?]+|[[\]]|\s+|.)"#)
+        Regex::new(r#"(\[\[[^\]]*\]\]|"[^"]+"|[(){};]|[\w~!@#$%^&*\-+=:|\\,.\/<>?]+|\[|\]|\s+|.)"#)
             .unwrap();
     let string_re = Regex::new(r#"^"[^"]+"$"#).unwrap();
     let comment_re = Regex::new(r#"^\[\[[^\]]*\]\]$"#).unwrap();

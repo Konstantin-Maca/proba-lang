@@ -91,7 +91,7 @@ impl State {
     pub fn recipient(&self) -> Option<usize> {
         for (ptr, is_for_method) in self.contexts.iter().rev() {
             if *is_for_method {
-                return Some(self.objects.iter().find(|obj| obj.0 == *ptr)?.1);
+                return self.parent(*ptr);
             }
         }
         None
@@ -119,6 +119,9 @@ impl State {
     pub fn parent(&self, ptr: usize) -> Option<usize> {
         Some(self.objects.iter().find(|obj| obj.0 == ptr)?.1)
     }
+    pub fn context_of(&self, ptr: usize) -> Option<usize> {
+        Some(self.objects.iter().find(|obj| obj.0 == ptr)?.2)
+    }
 
     /// Return Some if success, else None.
     pub fn let_field(&mut self, ptr: usize, name: String, value: Value) -> Option<()> {
@@ -142,48 +145,80 @@ impl State {
         (*field).2 = value;
         Some(())
     }
-    pub fn get_field(&self, ptr: usize, name: String) -> Option<Value> {
+    pub fn get_field(&self, ptr: usize, name: String) -> Option<(usize, Value)> {
+        // println!("GET FIELD OF {ptr} NAMED {name}...");
         match self
             .fields
             .iter()
             .find(|field| (field.0, field.1.clone()) == (ptr, name.clone()))
         {
-            Some(field) => Some(field.2),
+            Some(field) => {
+                let result = Some((field.0, field.2));
+                // println!("GET FIELD OF {ptr} NAMED {name} => {result:?}");
+                result
+            }
             None => {
                 if ptr == 0 {
+                    // println!("GET FIELD OF {ptr} NAMED {name} => None");
                     None?
                 } else {
                     let parent_ptr = self.objects.iter().find(|obj| obj.0 == ptr)?.1;
-                    self.get_field(parent_ptr, name)
+                    let result = self.get_field(parent_ptr, name.clone());
+                    // println!("GET FIELD OF {ptr} NAMED {name} => {result:?}");
+                    result
                 }
             }
         }
     }
-    pub fn get_field_ctx(&self, name: String) -> Option<Value> {
+    pub fn get_field_value(&self, ptr: usize, name: String) -> Option<Value> {
+        // println!("GET FIELD VALUE...");
+        Some(self.get_field(ptr, name)?.1)
+    }
+    pub fn get_field_value_ctx(&self, name: String) -> Option<Value> {
         // You can get field in a context-object,
         // only if you entered into it from another context,
         // that is a copy of the current context-object's creation context.
         // Exception: the global context.
-        let here = self.here().unwrap();
-        let heres_context = self.objects.iter().find(|obj| obj.0 == here)?.2;
-        if self.here().unwrap() != 1
-            && !self
-                .relation(self.contexts[self.contexts.len() - 2].0, heres_context)
-                .is_some()
-        {
-            None?
-        }
+        // println!("GET FIELD VALUE OF CTX NAMED {name}...");
+        let prev_context = if self.contexts.len() <= 1 {
+            None
+        } else {
+            Some(self.contexts[self.contexts.len() - 2].0)
+        };
 
         for (ptr, is_for_method) in self.contexts.iter().rev() {
+            // println!("Next context: {ptr}");
             match self.get_field(*ptr, name.clone()) {
-                Some(value) => return Some(value),
-                None => (),
+                Some((ptr, value)) if self.have_access(prev_context, ptr) => {
+                    // println!("GET FIELD VALUE OF CTX NAMED {} => {:?}", name, Some(value));
+                    return Some(value);
+                }
+                _ => (),
             }
             if *is_for_method {
                 break;
             }
         }
-        self.get_field(self.contexts[0].0, name)
+        let result = self.get_field_value(self.contexts[0].0, name.clone());
+        // println!("GET FIELD VALUE OF CTX NAMED {name} => {result:?}");
+        result
+    }
+
+    fn have_access(&self, prev_context: Option<usize>, ptr: usize) -> bool {
+        if prev_context.is_none() {
+            // println!("HAVE ACCESS FROM {prev_context:?} AT {ptr} => true (GLOBAL)");
+            true
+        } else if self.relation(prev_context.unwrap(), ptr).is_some() {
+            // println!("HAVE ACCESS FROM {prev_context:?} AT {ptr} => true (1 -> 2)");
+            true
+        } else {
+            let context_of_target_ptr = self
+            .context_of(ptr)
+            .expect(&format!("Failed to get context of object #{ptr}."));
+            let result = self.relation(prev_context.unwrap(), context_of_target_ptr).is_some();
+            // println!("HAVE ACCESS FROM {prev_context:?} AT {ptr} (_, _, {context_of_target_ptr}) => {result}");
+            result
+        }
     }
 
     /// Return true, if method is re-defined;

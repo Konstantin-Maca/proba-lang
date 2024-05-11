@@ -343,11 +343,11 @@ fn lex_singleton(tokens: &Vec<Token>, i: &mut usize) -> Option<Node> {
                         );
                         patterns.push(Node::new(node_data, token.line));
                         let token_kind = match tokens.get(*i) {
-                                Some(val) => &val.data,
-                                None => {
-                                    syntax_error(token.line, "Unfinished method definition.".into())
-                                }
-                            };
+                            Some(val) => &val.data,
+                            None => {
+                                syntax_error(token.line, "Unfinished method definition.".into())
+                            }
+                        };
                         match token_kind {
                             TokenKind::EOQ => {
                                 *i += 1;
