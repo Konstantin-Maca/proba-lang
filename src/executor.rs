@@ -15,6 +15,8 @@ pub enum Interrupt {
 
 pub const LIB_DIR: &str = "/home/mazza/dev/proba-lang/lib"; // CHAGE THIS CONSTANT TO WHERE YOU WANT TO STORE LIBS
 
+pub static mut CURRENT_FILE_PATH: String = String::new();
+
 pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
     match node.data.deref() {
         NodeKind::Here => Ok(state.here().unwrap()),

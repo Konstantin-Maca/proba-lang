@@ -213,9 +213,11 @@ impl State {
             true
         } else {
             let context_of_target_ptr = self
-            .context_of(ptr)
-            .expect(&format!("Failed to get context of object #{ptr}."));
-            let result = self.relation(prev_context.unwrap(), context_of_target_ptr).is_some();
+                .context_of(ptr)
+                .expect(&format!("Failed to get context of object #{ptr}."));
+            let result = self
+                .relation(prev_context.unwrap(), context_of_target_ptr)
+                .is_some();
             // println!("HAVE ACCESS FROM {prev_context:?} AT {ptr} (_, _, {context_of_target_ptr}) => {result}");
             result
         }

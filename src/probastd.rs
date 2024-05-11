@@ -1,8 +1,10 @@
-use crate::executor::{Interrupt, LIB_DIR};
+use crate::executor::{self, Interrupt, LIB_DIR};
 use crate::rpmt::*;
 use crate::vmstate::{Body, Pattern, State, Value};
 
 pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
+    unsafe { executor::CURRENT_FILE_PATH = "<std>".into() }
+
     let my_objects = &mut state.objects;
     my_objects.push((0, 0, 0));
     state.objects.push((1, 0, 1));
@@ -10,29 +12,32 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     state.let_field(1, "Object".into(), Value::Pointer(0)); // `at <Context> let Object <Object>`
     state.op_count = 2;
 
-    state.define_method(
-        0,
-        Pattern::Kw("exit".into()),
-        Body::Rust(|state| Err(Interrupt::Exit(state.recipient().unwrap()))),
-    );
-    state.define_method(
-        0,
-        Pattern::Kw("print".into()),
-        Body::Rust(|state| {
-            let ptr = state.recipient().unwrap();
-            print!("[[Object#{ptr}]]");
-            Ok(ptr)
-        }),
-    ); // TODO: Redo with convertation into string
-    state.define_method(
-        0,
-        Pattern::Kw("println".into()),
-        Body::Rust(|state| {
-            let ptr = state.recipient().unwrap();
-            println!("[[Object#{ptr}]]");
-            Ok(ptr)
-        }),
-    ); // TODO: Redo with convertation into string
+    {
+        // at Object
+        state.define_method(
+            0,
+            Pattern::Kw("exit".into()),
+            Body::Rust(|state| Err(Interrupt::Exit(state.recipient().unwrap()))),
+        );
+        state.define_method(
+            0,
+            Pattern::Kw("print".into()),
+            Body::Rust(|state| {
+                let ptr = state.recipient().unwrap();
+                print!("[[Object#{ptr}]]");
+                Ok(ptr)
+            }),
+        ); // TODO: Redo with convertation into string
+        state.define_method(
+            0,
+            Pattern::Kw("println".into()),
+            Body::Rust(|state| {
+                let ptr = state.recipient().unwrap();
+                println!("[[Object#{ptr}]]");
+                Ok(ptr)
+            }),
+        ); // TODO: Redo with convertation into string
+    }
 
     exec(
         state,
@@ -46,6 +51,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     )
     .unwrap();
     {
+        // at True
         let true_ptr = state
             .get_field_value(1, "True".into())
             .unwrap()
@@ -67,6 +73,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
             }),
         );
 
+        // at False
         let false_ptr = state
             .get_field_value(1, "False".into())
             .unwrap()
@@ -132,7 +139,7 @@ pub(crate) fn define_standard(state: &mut State) -> Result<usize, Interrupt> {
     exec(state, "let Number copy Object;").unwrap();
 
     {
-        // Int
+        // at Int
         let int_ptr = exec(state, "let Int copy Number;").unwrap();
         state.contexts.push((int_ptr, false));
 
