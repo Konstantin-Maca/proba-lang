@@ -1,6 +1,5 @@
 use crate::lexer::{Node, NodeKind, PatternKind};
 use crate::vmstate::{Body, Pattern, State, Value};
-use crate::PROG_CONFIG;
 use std::ops::Deref;
 use std::path::PathBuf;
 
@@ -10,7 +9,7 @@ pub enum Interrupt {
     Return(usize),
     Repeat,
     Err(String),
-    Error(usize, String),
+    Error(String, usize, String),
 }
 
 pub const LIB_DIR: &str = "/home/mazza/dev/proba-lang/lib"; // CHAGE THIS CONSTANT TO WHERE YOU WANT TO STORE LIBS
@@ -49,6 +48,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             let method = match match_method(state, recipient, message) {
                 Some(method) => method,
                 None => Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     format!(
                         "Failed to match method for recipient {recipient} and message {message}"
@@ -67,6 +67,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             let context = match state.contexts.last() {
                 Some(c) => c.0,
                 None => Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     format!("There is no field or key-method named `{name}'"),
                 ))?,
@@ -86,6 +87,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                 }
             } else {
                 Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     format!("Undefined keyword-method or field name: {}", name),
                 ))?
@@ -117,6 +119,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             match state.copy(ptr) {
                 Some(p) => Ok(p),
                 None => Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     "Fatal system error: Failed to copy object, because it does not exists".into(),
                 )),
@@ -143,6 +146,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                     .is_some()
             {
                 Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     "Unable to access fileds of the context object here.".into(),
                 ))?
@@ -156,7 +160,11 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             );
             match success {
                 Some(_) => Ok(value),
-                None => Err(Interrupt::Error(node.line, "Unexpected error".into())),
+                None => Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
+                    node.line,
+                    "Unexpected error".into(),
+                )),
             }
         }
         NodeKind::Set(name, value_node) => {
@@ -178,6 +186,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
                     .is_some()
             {
                 Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     "Unable to access fileds of the context object here.".into(),
                 ))?
@@ -192,6 +201,7 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
             match success {
                 Some(_) => Ok(value),
                 None => Err(Interrupt::Error(
+                    unsafe { CURRENT_FILE_PATH.clone() },
                     node.line,
                     format!("There is no field with name {name}"),
                 )),
@@ -252,7 +262,11 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
 
 fn execute_queue(state: &mut State, queue: &Vec<Node>, line: usize) -> Result<usize, Interrupt> {
     if queue.len() == 0 {
-        Err(Interrupt::Error(line, "Empty block of code".into()))?
+        Err(Interrupt::Error(
+            unsafe { CURRENT_FILE_PATH.clone() },
+            line,
+            "Empty block of code".into(),
+        ))?
     }
     let mut result = 0;
     for node in queue {
@@ -426,11 +440,10 @@ pub fn import_module(
         Some(file_path) => match crate::parser::parse_file(file_path.clone()) {
             Ok(tokens) => {
                 let tree_node = crate::lexer::lex(tokens);
-                let prev_file_path = unsafe { CURRENT_FILE_PATH.clone() };
-
+                let super_file_path = unsafe { CURRENT_FILE_PATH.clone() };
                 unsafe { CURRENT_FILE_PATH = file_path }
                 let result = execute(state, tree_node);
-                unsafe { CURRENT_FILE_PATH = prev_file_path }
+                unsafe { CURRENT_FILE_PATH = super_file_path }
                 result
             }
             Err(_) => Err(Interrupt::Err(format!(

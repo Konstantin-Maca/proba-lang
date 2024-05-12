@@ -45,7 +45,7 @@ fn main() {
         Ok(_) => (),
         Err(int) => {
             println!("FATAL ERROR: Failed to load standard library!");
-            proba_exit(&state, Err(int));
+            proba_exit(&mut state, Err(int));
         }
     }
     let file_path = if let Some(fp) = unsafe { PROG_CONFIG.file_path.clone() } {
@@ -65,7 +65,7 @@ fn main() {
 
     unsafe { executor::CURRENT_FILE_PATH = PROG_CONFIG.file_path.clone().unwrap() };
     let result = executor::execute(&mut state, tree);
-    proba_exit(&state, result);
+    proba_exit(&mut state, result);
 }
 
 fn parse_args() {
@@ -75,7 +75,7 @@ fn parse_args() {
 
     while args.len() > 0 && args[0].starts_with("-") {
         match args[0].as_str() {
-            "-interactive-terminal-mode" | "-terminal" | "-itm" => {
+            "-interactive-terminal" | "-terminal" | "-pit" => {
                 config.interactive_terminal_mode = true
             }
             "-debug-state" | "-ds" => config.debug_state = true,
@@ -106,6 +106,8 @@ fn run_pit(state: &mut vmstate::State) -> ! {
 
     // TODO: Define methods for quitting and getting answer of previous executed command.
 
+    println!("\nCall method [: exit] or press ctrl-c to exit.\n");
+
     let mut command_input = String::new();
     let result = 'main: loop {
         print!("pit> ");
@@ -120,34 +122,46 @@ fn run_pit(state: &mut vmstate::State) -> ! {
                 print!("=> ");
                 let method = state.get_method(*answer, "println".into()).unwrap();
                 let file_path = unsafe { CURRENT_FILE_PATH.clone() };
-                let res = executor::execute_method(state, *answer, method.2.clone(), ("[:println]".into(), *answer), file_path);
+                let res = executor::execute_method(
+                    state,
+                    *answer,
+                    method.2.clone(),
+                    ("[:println]".into(), *answer),
+                    file_path,
+                );
                 match res {
                     Ok(_) => (),
                     Err(int) => {
                         println!("Failed to represent the answer:");
-                        if let Interrupt::Error(line, message) = int {
-                            print_error(line, &message);
+                        if let Interrupt::Error(fp, line, message) = int {
+                            print_error(&fp, line, &message);
                         }
-                    },
+                    }
                 }
-            },
+            }
             Err(Interrupt::Exit(answer)) => {
-                println!("=> {answer}");
+                print!("=> ");
                 let method = state.get_method(*answer, "println".into()).unwrap();
                 let file_path = unsafe { CURRENT_FILE_PATH.clone() };
-                let res = executor::execute_method(state, *answer, method.2.clone(), ("[:println]".into(), *answer), file_path);
+                let res = executor::execute_method(
+                    state,
+                    *answer,
+                    method.2.clone(),
+                    ("[:println]".into(), *answer),
+                    file_path,
+                );
                 match res {
                     Ok(_) => (),
                     Err(int) => {
                         println!("Failed to represent the answer:");
-                        if let Interrupt::Error(line, message) = int {
-                            print_error(line, &message);
+                        if let Interrupt::Error(fp, line, message) = int {
+                            print_error(&fp, line, &message);
                         }
-                    },
+                    }
                 }
                 break 'main result;
             }
-            Err(Interrupt::Error(line, message)) => print_error(*line, message),
+            Err(Interrupt::Error(fp, line, message)) => print_error(&fp, *line, message),
             _ => todo!("handle other interrupts in PIT"), // TODO
         }
     };
@@ -155,7 +169,7 @@ fn run_pit(state: &mut vmstate::State) -> ! {
     proba_exit(state, result);
 }
 
-fn proba_exit(state: &vmstate::State, result: Result<usize, Interrupt>) -> ! {
+fn proba_exit(state: &mut vmstate::State, result: Result<usize, Interrupt>) -> ! {
     if unsafe { PROG_CONFIG.debug_state } {
         dbg!(&state);
     }
@@ -165,8 +179,8 @@ fn proba_exit(state: &vmstate::State, result: Result<usize, Interrupt>) -> ! {
 
     let answer = match result {
         Ok(a) | Err(Interrupt::Exit(a) | Interrupt::Return(a)) => a,
-        Err(Interrupt::Error(line, message)) => {
-            print_error(line, &message);
+        Err(Interrupt::Error(fp, line, message)) => {
+            print_error(&fp, line, &message);
             exit(0);
         }
         _ => unreachable!(),
@@ -175,11 +189,14 @@ fn proba_exit(state: &vmstate::State, result: Result<usize, Interrupt>) -> ! {
         println!("\nProgram returned: {answer}");
     }
 
+    if unsafe { PROG_CONFIG.interactive_terminal_mode } {
+        run_pit(state);
+    }
+
     exit(0)
 }
 
-fn print_error(line: usize, message: &str) {
+fn print_error(file_path: &str, line: usize, message: &str) {
     let line = line + 1;
-    let file_path = unsafe { executor::CURRENT_FILE_PATH.clone() };
     println!("\nRuntime error on line {line} in `{file_path}':\n {message}");
 }

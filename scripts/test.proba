@@ -1,2 +1,10 @@
-import tutorial here
-  println;
+import tutorial here;
+
+[[ Test List ]]
+let my_list copy List;
+my_list first dbg;
+my_list last dbg;
+
+my_list push 0;
+my_list first dbg;
+my_list last dbg;
