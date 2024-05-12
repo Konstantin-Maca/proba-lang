@@ -236,19 +236,15 @@ pub fn execute(state: &mut State, node: Node) -> Result<usize, Interrupt> {
         NodeKind::Import(name, node) => {
             // TODO: Put here dir of the executed file
             let target_object_ptr = execute(state, node.clone())?;
+            let current_dir_path = PathBuf::from(unsafe { CURRENT_FILE_PATH.clone() })
+                .parent()
+                .unwrap()
+                .to_owned();
             import_module(
                 state,
                 target_object_ptr,
                 name.into(),
-                vec![
-                    LIB_DIR.into(),
-                    PathBuf::from(unsafe { &PROG_CONFIG }.file_path.clone().unwrap())
-                        .parent()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .into(),
-                ],
+                vec![LIB_DIR.into(), current_dir_path.to_str().unwrap().into()],
             )
         }
     }
@@ -282,7 +278,7 @@ pub fn execute_method(
         state.objects.push((new_ptr, owner_ptr, owner_ptr));
         new_ptr
     };
-    let prev_file_path = unsafe { CURRENT_FILE_PATH.clone() };
+    let super_file_path = unsafe { CURRENT_FILE_PATH.clone() };
     unsafe { CURRENT_FILE_PATH = file_path }
 
     state.contexts.push((context, true));
@@ -301,7 +297,7 @@ pub fn execute_method(
     };
     state.contexts.pop().unwrap();
 
-    unsafe { CURRENT_FILE_PATH = prev_file_path }
+    unsafe { CURRENT_FILE_PATH = super_file_path }
 
     result
 }
@@ -332,8 +328,13 @@ pub fn match_method(
                         Pattern::EqA(_, name) | Pattern::PtA(_, name) => name.clone(),
                         _ => unreachable!(),
                     };
-                    let result_ptr =
-                        execute_method(state, ptr, method.2.clone(), (arg_name, message), method.3.clone());
+                    let result_ptr = execute_method(
+                        state,
+                        ptr,
+                        method.2.clone(),
+                        (arg_name, message),
+                        method.3.clone(),
+                    );
 
                     result_ptr.unwrap()
                         == state

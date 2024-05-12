@@ -244,11 +244,16 @@ impl State {
         } else {
             false
         };
-        self.methods.push((ptr, pattern, body, unsafe { CURRENT_FILE_PATH.clone() }));
+        self.methods
+            .push((ptr, pattern, body, unsafe { CURRENT_FILE_PATH.clone() }));
         redefined
     }
     /// Use when message is a name (word (keyword)).
-    pub fn get_method(&self, ptr: usize, keyword: String) -> Option<&(usize, Pattern, Body, String)> {
+    pub fn get_method(
+        &self,
+        ptr: usize,
+        keyword: String,
+    ) -> Option<&(usize, Pattern, Body, String)> {
         match self
             .methods
             .iter()
